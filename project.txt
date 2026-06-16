@@ -1,0 +1,42 @@
+# SWIFT ADVANCED MANAGEMENT SOLUTIONS LLC (SAMS) — Fire Safety E-Commerce Website
+
+## 1. Project Overview & Requirements
+A modern, premium, responsive e-commerce web application for SAMS (Oman), featuring self-activating fire safety solutions (extinguisher balls and decorative flower pots). It serves as both a product catalog, user inquiry/cart checkout portal, and administrative content management system (CMS).
+
+## 2. Tech Stack & Justifications
+- **Frontend**: Next.js 14/15 App Router (React, TypeScript) for fast rendering, dynamic routing, and optimized SEO.
+- **Styling**: Tailwind CSS for responsive, modern UI design matching the provided minimalist aesthetic.
+- **Backend & Database**: Supabase (PostgreSQL) for storing products, inquiries, categories, orders, certificates, testimonials, and FAQs.
+- **Auth**: Supabase Auth for securing the Admin Dashboard.
+- **State Management**: Zustand for managing the global shopping cart state.
+- **Animations**: Framer Motion for smooth transitions and hover micro-animations.
+
+## 3. Architecture Description
+```
++-----------------------------------+
+|            Next.js App            |
+|  (Home, Catalog, Product, Admin)  |
++-----------------+-----------------+
+                  |
+                  | Supabase Client API
+                  v
++-----------------+-----------------+
+|          Supabase Cloud           |
+|  (PostgreSQL DB, Auth, Storage)   |
++-----------------------------------+
+```
+
+## 4. Key Features
+- **Landing Page**: Transparent navigation, bold minimalist hero section, feature cards, usage areas, certificates, testimonials, interactive statistics, FAQ, and final CTA.
+- **Catalog Page**: Filtering by weight, category, make, and price; keyword search; price and popularity sorting.
+- **Single Product Page**: Rich product information, technical specifications, related items, inquiry submissions, and quick WhatsApp messaging.
+- **Cart & Checkout**: Drawer-based cart system; checkout inquiry form submitting customer and order details to Supabase.
+- **Admin Dashboard**: Secure management dashboard to add/edit/delete products, manage testimonials, FAQs, certificates, and view customer inquiries.
+
+## 5. Timeline & Milestones
+- **Milestone 1**: Supabase Database Schema and Seed Data creation.
+- **Milestone 2**: Frontend structure setup and components (Header, Footer, Cart).
+- **Milestone 3**: Landing page and Product catalog rendering (fetching from Supabase).
+- **Milestone 4**: Interactive cart, checkout inquiry flow, and single product page.
+- **Milestone 5**: Admin Dashboard implementation (login, product/inquiry management).
+- **Milestone 6**: Verification and polishing.
