@@ -132,10 +132,15 @@ export default function CatalogPreview() {
                   {/* Price & Action Buttons */}
                   <div className="pt-3 border-t border-white/10 flex items-center justify-between">
                     <div>
-                      <span className="text-[9px] text-gray-400 uppercase tracking-widest block font-medium">OMR Price</span>
-                      <span className="text-lg font-extrabold text-white">
-                        {Number(prod.price).toFixed(3)} <span className="text-xs font-semibold">{prod.currency}</span>
-                      </span>
+                      <span className="text-[9px] text-gray-405 uppercase tracking-widest block font-medium">OMR Price (30% OFF)</span>
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-lg font-extrabold text-white">
+                          {Number(prod.price).toFixed(3)} <span className="text-[10px] font-semibold">{prod.currency}</span>
+                        </span>
+                        <span className="text-xs text-gray-400 line-through font-light">
+                          {(Number(prod.price) / 0.70).toFixed(3)}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-2">

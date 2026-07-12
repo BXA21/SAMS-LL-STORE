@@ -100,7 +100,7 @@ export default function Certificates() {
             <strong className="text-navy font-semibold uppercase tracking-wider block mb-1">
               Client Certification Notice
             </strong>
-            SAMS only displays certificates and documentation issued by verified, authorized manufacturing plants and testing laboratories. We strictly prohibit fake certification claims. All active certificates can be requested through our inquiry channel.
+            SAMS only displays certificates and documentation issued by verified, authorized manufacturing plants and testing laboratories. We strictly prohibit fake certification claims. All active certificates can be requested through our enquiry channel.
           </p>
         </div>
       </div>

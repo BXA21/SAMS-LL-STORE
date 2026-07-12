@@ -69,7 +69,7 @@ function ResultContent() {
                 <ArrowRight className="w-4 h-4" />
               </Link>
               <a
-                href="https://wa.me/96890000000?text=Hello%20SAMS%20LLC,%20I%20have%20just%20completed%20an%2520online%2520order%2520with%2520Invoice%2520ID:%2520"
+                href="https://wa.me/96877554070?text=Hello%20SAMS%20LLC,%20I%2520have%2520just%2520completed%252520an%252520online%252520order%252520with%252520Invoice%252520ID:%252520"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="bg-green-600 hover:bg-green-700 text-white text-xs uppercase tracking-widest font-bold py-3.5 px-8 rounded-md flex items-center justify-center gap-1.5 transition-colors"
@@ -95,7 +95,7 @@ function ResultContent() {
               <ul className="list-disc pl-4 space-y-1">
                 <li>Verify your credit/debit card number and CVV.</li>
                 <li>Check your available balance or bank limits.</li>
-                <li>Submit a manual quotation inquiry if card problems persist.</li>
+                <li>Submit a manual quotation enquiry if card problems persist.</li>
               </ul>
             </div>
 

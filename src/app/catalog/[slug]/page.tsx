@@ -114,7 +114,7 @@ export default function ProductDetailPage({ params }: PageProps) {
   const whatsAppText = encodeURIComponent(
     `Hello SAMS LLC, I am interested in purchasing ${product.name} (Make: ${product.make}, Price: ${product.price} OMR). Please provide order confirmation details.`
   );
-  const whatsAppLink = `https://wa.me/96890000000?text=${whatsAppText}`;
+  const whatsAppLink = `https://wa.me/96877554070?text=${whatsAppText}`;
 
   return (
     <div className="bg-white min-h-screen text-gray-900 pb-24 pt-20">
@@ -191,10 +191,18 @@ export default function ProductDetailPage({ params }: PageProps) {
             </div>
 
             {/* Price Box */}
-            <div className="bg-light-grey p-6 rounded-2xl border border-gray-150 space-y-1">
-              <span className="text-[10px] text-gray-450 uppercase tracking-widest font-semibold block">Selling Price</span>
-              <div className="text-3xl font-extrabold text-navy">
-                {Number(product.price).toFixed(3)} <span className="text-lg font-bold">{product.currency}</span>
+            <div className="bg-light-grey p-6 rounded-2xl border border-gray-150 space-y-2">
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] text-gray-450 uppercase tracking-widest font-semibold block">Selling Price</span>
+                <span className="bg-fire/15 text-fire text-[9px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded">30% OFF</span>
+              </div>
+              <div className="flex items-baseline gap-3">
+                <div className="text-3xl font-extrabold text-navy">
+                  {Number(product.price).toFixed(3)} <span className="text-lg font-bold">{product.currency}</span>
+                </div>
+                <div className="text-sm text-gray-450 line-through font-semibold">
+                  {(Number(product.price) / 0.70).toFixed(3)} {product.currency}
+                </div>
               </div>
               <span className="text-[10px] text-gray-400 block font-light">
                 * Prices are inclusive of import validation in Oman.
@@ -250,10 +258,10 @@ export default function ProductDetailPage({ params }: PageProps) {
                 </button>
               </div>
 
-              {/* Inquiry & WhatsApp CTA Buttons */}
+              {/* Enquiry & WhatsApp CTA Buttons */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                 <Link
-                  href="/contact"
+                  href={`/contact?product=${product.slug}&quantity=${quantity}`}
                   className="bg-navy hover:bg-navy/90 text-white text-xs uppercase tracking-widest font-bold py-3.5 px-4 rounded-md flex items-center justify-center gap-2 border border-navy transition-colors"
                 >
                   <MessageSquare className="w-4 h-4" />
@@ -267,7 +275,7 @@ export default function ProductDetailPage({ params }: PageProps) {
                   className="bg-green-600 hover:bg-green-700 text-white text-xs uppercase tracking-widest font-bold py-3.5 px-4 rounded-md flex items-center justify-center gap-2 transition-colors"
                 >
                   <PhoneCall className="w-4 h-4" />
-                  WhatsApp Inquiry
+                  WhatsApp Enquiry
                 </a>
               </div>
             </div>
@@ -426,9 +434,14 @@ export default function ProductDetailPage({ params }: PageProps) {
                     </div>
 
                     <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
-                      <span className="text-sm font-extrabold text-navy">
-                        {Number(prod.price).toFixed(3)} {prod.currency}
-                      </span>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-sm font-extrabold text-navy">
+                          {Number(prod.price).toFixed(3)} {prod.currency}
+                        </span>
+                        <span className="text-[10px] text-gray-400 line-through font-medium">
+                          {(Number(prod.price) / 0.70).toFixed(3)}
+                        </span>
+                      </div>
                       <Link 
                         href={`/catalog/${prod.slug}`}
                         className="text-xs uppercase tracking-widest font-bold text-fire hover:text-navy transition-colors"

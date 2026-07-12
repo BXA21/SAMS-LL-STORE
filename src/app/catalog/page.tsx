@@ -480,10 +480,18 @@ function CatalogPageContent() {
 
                       <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
                         <div className="space-y-0.5">
-                          <span className="text-[9px] text-gray-400 uppercase tracking-widest font-semibold block">Selling Price</span>
-                          <span className="text-base font-extrabold text-navy">
-                            {Number(prod.price).toFixed(3)} <span className="text-[10px] font-semibold">{prod.currency}</span>
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[9px] text-gray-400 uppercase tracking-widest font-semibold block">Selling Price</span>
+                            <span className="text-[8px] bg-fire/15 text-fire px-1 rounded font-bold">30% OFF</span>
+                          </div>
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-base font-extrabold text-navy">
+                              {Number(prod.price).toFixed(3)} <span className="text-[10px] font-semibold">{prod.currency}</span>
+                            </span>
+                            <span className="text-xs text-gray-450 line-through font-medium">
+                              {(Number(prod.price) / 0.70).toFixed(3)}
+                            </span>
+                          </div>
                         </div>
                         
                         <button 

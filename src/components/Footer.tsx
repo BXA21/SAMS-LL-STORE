@@ -40,10 +40,13 @@ export default function Footer() {
                 <Link href="/catalog" className="hover:text-fire transition-colors">Catalog</Link>
               </li>
               <li>
-                <Link href="/orders" className="hover:text-fire transition-colors">Orders</Link>
+                <Link href="/contact" className="hover:text-fire transition-colors">Contact Us</Link>
               </li>
               <li>
-                <Link href="/contact" className="hover:text-fire transition-colors">Contact Us</Link>
+                <Link href="/terms" className="hover:text-fire transition-colors">Terms & Conditions</Link>
+              </li>
+              <li>
+                <Link href="/privacy" className="hover:text-fire transition-colors">Privacy Policy</Link>
               </li>
               <li>
                 <Link href="/admin" className="hover:text-fire transition-colors">Admin Portal</Link>
@@ -84,15 +87,15 @@ export default function Footer() {
             <ul className="space-y-4 text-sm font-light text-gray-300">
               <li className="flex items-start gap-3">
                 <MapPin className="w-5 h-5 text-fire shrink-0 mt-0.5" />
-                <span>Muscat, Sultanate of Oman</span>
+                <span>Unit No. 2, Al Shumoor Building, Way no 2706, CBD, Ruwi, Muscat, Sultanate of Oman</span>
               </li>
               <li className="flex items-center gap-3">
                 <Phone className="w-5 h-5 text-fire shrink-0" />
-                <span>+968 24000000</span>
+                <a href="tel:+96877554070" className="hover:text-fire transition-colors">+968 77554070</a>
               </li>
               <li className="flex items-center gap-3">
                 <Mail className="w-5 h-5 text-fire shrink-0" />
-                <span>info@sams-oman.com</span>
+                <a href="mailto:info@samsoman.com" className="hover:text-fire transition-colors">info@samsoman.com</a>
               </li>
             </ul>
           </div>

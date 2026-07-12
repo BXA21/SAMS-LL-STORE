@@ -175,23 +175,30 @@ export default function AdminPage() {
           sessionStorage.setItem('sams_admin_name', 'Admin Operator');
         }
       } else {
-        // Simulated local fallback credentials for testing
+        // Simulated local fallback credentials from environment variables
         const userEmail = email.toLowerCase().trim();
-        if (userEmail === 'admin@sams-oman.com' && password === 'SAMSAdmin2026!') {
+        const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL || '';
+        const adminPassword = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || '';
+        const sales1Email = process.env.NEXT_PUBLIC_SALES1_EMAIL || '';
+        const sales1Password = process.env.NEXT_PUBLIC_SALES1_PASSWORD || '';
+        const sales2Email = process.env.NEXT_PUBLIC_SALES2_EMAIL || '';
+        const sales2Password = process.env.NEXT_PUBLIC_SALES2_PASSWORD || '';
+
+        if (adminEmail && userEmail === adminEmail.toLowerCase() && password === adminPassword) {
           sessionStorage.setItem('sams_admin_session', 'active');
           sessionStorage.setItem('sams_admin_role', 'admin');
           sessionStorage.setItem('sams_admin_name', 'Admin Operator');
           setUserRole('admin');
           setUserName('Admin Operator');
           setIsAuthenticated(true);
-        } else if (userEmail === 'abdulrazzaq@sams-oman.com' && password === 'SAMSAbdul2026!') {
+        } else if (sales1Email && userEmail === sales1Email.toLowerCase() && password === sales1Password) {
           sessionStorage.setItem('sams_admin_session', 'active');
           sessionStorage.setItem('sams_admin_role', 'sales');
           sessionStorage.setItem('sams_admin_name', 'Abdulrazzaq');
           setUserRole('sales');
           setUserName('Abdulrazzaq');
           setIsAuthenticated(true);
-        } else if (userEmail === 'abdulwahid@sams-oman.com' && password === 'SAMSAbdul2026!') {
+        } else if (sales2Email && userEmail === sales2Email.toLowerCase() && password === sales2Password) {
           sessionStorage.setItem('sams_admin_session', 'active');
           sessionStorage.setItem('sams_admin_role', 'sales');
           sessionStorage.setItem('sams_admin_name', 'Abdulwahid');
@@ -199,7 +206,7 @@ export default function AdminPage() {
           setUserName('Abdulwahid');
           setIsAuthenticated(true);
         } else {
-          throw new Error('Invalid email or password (Test credentials: admin@sams-oman.com / SAMSAdmin2026! or sales: abdulrazzaq@sams-oman.com / SAMSAbdul2026!)');
+          throw new Error('Invalid email or password.');
         }
       }
     } catch (err: any) {
@@ -464,23 +471,7 @@ export default function AdminPage() {
               </div>
             )}
 
-            {!isSupabaseConfigured && (
-              <div className="bg-navy/5 border border-navy/10 p-4 rounded-2xl text-[11px] text-gray-600 leading-relaxed font-light space-y-1">
-                <strong className="text-navy uppercase tracking-wider block font-bold">Local Sandbox Fallback:</strong>
-                <p>Sign in using sandbox credentials:</p>
-                <div className="bg-white/50 p-2.5 rounded-lg border border-gray-150 font-mono space-y-1 text-[10px]">
-                  <div>
-                    <span className="font-semibold text-navy">Admin:</span> admin@sams-oman.com / SAMSAdmin2026!
-                  </div>
-                  <div>
-                    <span className="font-semibold text-navy">Sales 1:</span> abdulrazzaq@sams-oman.com / SAMSAbdul2026!
-                  </div>
-                  <div>
-                    <span className="font-semibold text-navy">Sales 2:</span> abdulwahid@sams-oman.com / SAMSAbdul2026!
-                  </div>
-                </div>
-              </div>
-            )}
+
 
             <div className="space-y-4">
               <div className="space-y-1.5">
@@ -758,7 +749,7 @@ export default function AdminPage() {
 
                 <div className="bg-white p-6 rounded-2xl border border-gray-150 flex items-center justify-between shadow-sm hover:shadow-md transition-shadow">
                   <div className="space-y-1">
-                    <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold block">Quotation Inquiries</span>
+                    <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold block">Quotation Enquiries</span>
                     <span className="text-3xl font-extrabold text-navy font-display">{inquiries.length}</span>
                   </div>
                   <div className="bg-orange-50 p-3.5 rounded-xl text-safety"><MessageSquare className="w-6 h-6" /></div>
@@ -781,7 +772,7 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* Grid: Recent Orders & Inquiries */}
+              {/* Grid: Recent Orders & Enquiries */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* Quotations */}
                 <div className="bg-white rounded-2xl border border-gray-150 p-6 shadow-sm space-y-6">
@@ -814,7 +805,7 @@ export default function AdminPage() {
                       </div>
                     ))}
                     {inquiries.length === 0 && (
-                      <p className="text-xs text-gray-400 italic text-center py-6">No quotation inquiries available.</p>
+                      <p className="text-xs text-gray-400 italic text-center py-6">No quotation enquiries available.</p>
                     )}
                   </div>
                 </div>
@@ -898,7 +889,7 @@ export default function AdminPage() {
                       ordersTab === 'quotations' ? 'bg-white text-navy shadow-sm' : 'text-gray-500 hover:text-navy'
                     }`}
                   >
-                    Quotation Inquiries ({filteredInquiries.length})
+                    Quotation Enquiries ({filteredInquiries.length})
                   </button>
                 </div>
               </div>
@@ -987,7 +978,7 @@ export default function AdminPage() {
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
                         <tr className="bg-gray-50 text-gray-400 uppercase tracking-wider text-[10px] border-b border-gray-150 font-bold">
-                          <th className="p-4 pl-6">Inquirer Details</th>
+                          <th className="p-4 pl-6">Enquirer Details</th>
                           <th className="p-4">Company</th>
                           <th className="p-4">Product Requested</th>
                           <th className="p-4">Quantity</th>
@@ -1031,7 +1022,7 @@ export default function AdminPage() {
                         ))}
                         {filteredInquiries.length === 0 && (
                           <tr>
-                            <td colSpan={7} className="p-8 text-center text-gray-400 italic">No quotation inquiries found.</td>
+                            <td colSpan={7} className="p-8 text-center text-gray-400 italic">No quotation enquiries found.</td>
                           </tr>
                         )}
                       </tbody>
@@ -1155,7 +1146,7 @@ export default function AdminPage() {
                   Registered Customers & CRM
                 </h2>
                 <p className="text-xs text-gray-500 font-light">
-                  A unified list of individual customers and businesses that have ordered or submitted quotation inquiries.
+                  A unified list of individual customers and businesses that have ordered or submitted quotation enquiries.
                 </p>
               </div>
 
@@ -1791,7 +1782,7 @@ export default function AdminPage() {
 
                         // Custom message templates
                         const quoteMsg = encodeURIComponent(
-                          `Dear ${cust.name},\n\nThank you for choosing SAMS LLC Oman. We have reviewed your quotation inquiry and registered it under our sales database. Let us know if you require delivery details.\n\nBest regards,\n${userName}\nSAMS Sales Representative`
+                          `Dear ${cust.name},\n\nThank you for choosing SAMS LLC Oman. We have reviewed your quotation enquiry and registered it under our sales database. Let us know if you require delivery details.\n\nBest regards,\n${userName}\nSAMS Sales Representative`
                         );
                         const shipMsg = encodeURIComponent(
                           `Dear ${cust.name},\n\nYour SAMS fire safety order has been processed and is currently shipping via local courier (Oman Delivery: 1-3 business days). You can track your order status on our portal.\n\nBest regards,\n${userName}\nSAMS Sales Representative`

@@ -11,7 +11,6 @@ import {
   MapPin, 
   Send, 
   CheckCircle2, 
-  PhoneCall,
   Loader2,
   AlertCircle
 } from 'lucide-react';
@@ -73,6 +72,15 @@ function ContactPageContent() {
             setValue('productId', match.id);
           }
         }
+
+        // Auto-fill quantity if passed in URL query
+        const urlQty = searchParams.get('quantity');
+        if (urlQty) {
+          const parsedQty = parseInt(urlQty, 10);
+          if (!isNaN(parsedQty) && parsedQty > 0) {
+            setValue('quantity', parsedQty);
+          }
+        }
       } catch (err) {
         console.error('Error loading products for contact form:', err);
       }
@@ -92,7 +100,7 @@ function ContactPageContent() {
         phone: values.phone,
         company_name: values.companyName || undefined,
         product_id: values.productId === 'general' ? undefined : values.productId,
-        product_name: values.productId === 'general' ? 'General Inquiry' : selectedProd?.name,
+        product_name: values.productId === 'general' ? 'General Enquiry' : selectedProd?.name,
         quantity: values.quantity,
         message: values.message,
         status: 'new'
@@ -135,11 +143,11 @@ function ContactPageContent() {
         {/* Bento Grid Top Row */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
           
-          {/* LEFT: Inquiry Form (Col span 7) */}
+          {/* LEFT: Enquiry Form (Col span 7) */}
           <div className="lg:col-span-7 bg-light-grey/50 p-6 sm:p-8 rounded-2xl border border-gray-150 shadow-sm flex flex-col h-full justify-between space-y-8">
             <div className="space-y-2">
               <h2 className="font-display text-2xl uppercase tracking-wide font-bold text-navy">
-                Send SAMS an Inquiry
+                Send SAMS an Enquiry
               </h2>
               <p className="text-xs sm:text-sm text-gray-500 font-light">
                 Fill out the form below and a representative will follow up with you.
@@ -151,16 +159,16 @@ function ContactPageContent() {
               <div className="bg-green-50 border border-green-200 text-green-800 p-8 rounded-xl text-center space-y-4 flex-grow flex flex-col justify-center items-center">
                 <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto" />
                 <h3 className="font-display text-lg font-bold uppercase tracking-wider text-green-900">
-                  Inquiry Submitted Successfully
+                  Enquiry Submitted Successfully
                 </h3>
                 <p className="text-sm font-light text-green-700 leading-relaxed max-w-md mx-auto">
-                  Thank you for contacting SAMS. We have received your inquiry and our safety specialists will get in touch with you shortly.
+                  Thank you for contacting SAMS. We have received your enquiry and our safety specialists will get in touch with you shortly.
                 </p>
                 <button
                   onClick={() => setSubmitSuccess(false)}
                   className="bg-green-600 hover:bg-green-700 text-white text-xs uppercase tracking-widest font-bold px-6 py-2.5 rounded-md transition-colors cursor-pointer"
                 >
-                  Send Another Inquiry
+                  Send Another Enquiry
                 </button>
               </div>
             ) : (
@@ -238,10 +246,10 @@ function ContactPageContent() {
                       {...register('productId')}
                       className="w-full bg-white border border-gray-200 rounded-lg p-3 text-sm focus:outline-none focus:border-fire text-gray-850"
                     >
-                      <option value="general">General Corporate Inquiry</option>
+                      <option value="general">General Corporate Enquiry</option>
                       {products.map((p) => (
                         <option key={p.id} value={p.id}>
-                          {p.name} - {p.price.toFixed(3)} OMR
+                          {p.name}
                         </option>
                       ))}
                     </select>
@@ -285,12 +293,12 @@ function ContactPageContent() {
                   {isSubmitting ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      Submitting Inquiry...
+                      Submitting Enquiry...
                     </>
                   ) : (
                     <>
                       <Send className="w-4 h-4" />
-                      Submit Safety Inquiry
+                      Submit Safety Enquiry
                     </>
                   )}
                 </button>
@@ -298,10 +306,10 @@ function ContactPageContent() {
             )}
           </div>
 
-          {/* RIGHT: Corporate Contact Details & WhatsApp CTA stacked vertically (Col span 5) */}
-          <div className="lg:col-span-5 space-y-6">
+          {/* RIGHT: Corporate Contact Details (Col span 5) */}
+          <div className="lg:col-span-5 flex flex-col">
             {/* Corporate Contact Details */}
-            <div className="bg-light-grey/50 p-6 sm:p-8 rounded-2xl border border-gray-150 shadow-sm space-y-6">
+            <div className="bg-light-grey/50 p-6 sm:p-8 rounded-2xl border border-gray-150 shadow-sm flex-grow flex flex-col justify-between space-y-6">
               <div className="space-y-2">
                 <h2 className="font-display text-2xl uppercase tracking-wide font-bold text-navy">
                   Corporate Contact Details
@@ -309,32 +317,32 @@ function ContactPageContent() {
                 <div className="h-0.5 w-10 bg-fire rounded-full" />
               </div>
               
-              <div className="space-y-4">
+              <div className="space-y-4 flex-grow flex flex-col justify-between">
                 {/* Location Card */}
-                <div className="flex gap-4 items-start bg-white p-5 rounded-xl border border-gray-150 hover:border-fire/30 hover:shadow-sm transition-all duration-300 group">
-                  <div className="bg-light-grey p-2.5 rounded-lg group-hover:scale-105 transition-transform duration-300">
-                    <MapPin className="w-5 h-5 text-fire shrink-0" />
+                <div className="flex gap-4 items-start bg-white p-5 rounded-xl border border-gray-150 hover:border-fire/30 hover:shadow-sm transition-all duration-300 group flex-1">
+                  <div className="bg-light-grey p-2.5 rounded-lg group-hover:scale-105 transition-transform duration-300 shrink-0">
+                    <MapPin className="w-5 h-5 text-fire" />
                   </div>
                   <div className="space-y-1">
                     <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold block">Office Location</span>
-                    <p className="text-sm font-bold text-navy leading-snug">Darsait, Muscat</p>
-                    <p className="text-xs text-gray-500 font-light leading-relaxed">
+                    <p className="text-sm font-bold text-navy leading-snug">Ruwi, Muscat</p>
+                    <p className="text-xs text-gray-550 font-light leading-relaxed">
                       Sultanate of Oman <br />
-                      دارسيت، مسقط، سلطنة عمان
+                      روي، مسقط، سلطنة عمان
                     </p>
                     <p className="text-[10px] text-navy/70 font-semibold pt-0.5">Swift Advanced Management Solutions LLC</p>
                   </div>
                 </div>
 
                 {/* Phone Card */}
-                <a href="tel:+96877210510" className="flex gap-4 items-start bg-white p-5 rounded-xl border border-gray-150 hover:border-fire/30 hover:shadow-sm transition-all duration-300 group text-left cursor-pointer">
-                  <div className="bg-light-grey p-2.5 rounded-lg group-hover:scale-105 transition-transform duration-300">
-                    <Phone className="w-5 h-5 text-fire shrink-0" />
+                <a href="tel:+96877554070" className="flex gap-4 items-start bg-white p-5 rounded-xl border border-gray-150 hover:border-fire/30 hover:shadow-sm transition-all duration-300 group text-left cursor-pointer flex-1">
+                  <div className="bg-light-grey p-2.5 rounded-lg group-hover:scale-105 transition-transform duration-300 shrink-0">
+                    <Phone className="w-5 h-5 text-fire" />
                   </div>
                   <div className="space-y-1">
                     <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold block">Phone Line</span>
-                    <p className="text-sm font-bold text-navy leading-snug group-hover:text-fire transition-colors">+968 77210510</p>
-                    <p className="text-xs text-gray-550 font-light leading-relaxed">
+                    <p className="text-sm font-bold text-navy leading-snug group-hover:text-fire transition-colors">+968 77554070</p>
+                    <p className="text-xs text-gray-555 font-light leading-relaxed">
                       Sunday to Thursday: 8:00 AM - 5:00 PM
                     </p>
                     <span className="text-[9px] text-fire font-bold uppercase tracking-wider block pt-0.5 group-hover:underline">Click to call</span>
@@ -342,43 +350,18 @@ function ContactPageContent() {
                 </a>
 
                 {/* Email Card */}
-                <a href="mailto:info@sams-oman.com" className="flex gap-4 items-start bg-white p-5 rounded-xl border border-gray-150 hover:border-fire/30 hover:shadow-sm transition-all duration-300 group text-left cursor-pointer">
-                  <div className="bg-light-grey p-2.5 rounded-lg group-hover:scale-105 transition-transform duration-300">
-                    <Mail className="w-5 h-5 text-fire shrink-0" />
+                <a href="mailto:info@samsoman.com" className="flex gap-4 items-start bg-white p-5 rounded-xl border border-gray-150 hover:border-fire/30 hover:shadow-sm transition-all duration-300 group text-left cursor-pointer flex-1">
+                  <div className="bg-light-grey p-2.5 rounded-lg group-hover:scale-105 transition-transform duration-300 shrink-0">
+                    <Mail className="w-5 h-5 text-fire" />
                   </div>
                   <div className="space-y-1">
                     <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold block">Support Email</span>
-                    <p className="text-sm font-bold text-navy leading-snug group-hover:text-fire transition-colors">info@sams-oman.com</p>
-                    <p className="text-xs text-gray-550 font-light leading-relaxed">
-                      For quotations: sales@sams-oman.com
+                    <p className="text-sm font-bold text-navy leading-snug group-hover:text-fire transition-colors">info@samsoman.com</p>
+                    <p className="text-xs text-gray-555 font-light leading-relaxed">
+                      For quotations: sales@samsoman.com
                     </p>
                     <span className="text-[9px] text-fire font-bold uppercase tracking-wider block pt-0.5 group-hover:underline">Click to email</span>
                   </div>
-                </a>
-              </div>
-            </div>
-
-            {/* Direct WhatsApp Callout */}
-            <div className="bg-green-600 text-white p-6 sm:p-8 rounded-2xl space-y-4 shadow-lg shadow-green-600/15 relative overflow-hidden flex flex-col justify-center">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl pointer-events-none" />
-              <div className="flex items-center gap-2 relative z-10">
-                <span className="bg-white/20 p-2 rounded-lg">
-                  <PhoneCall className="w-5 h-5 text-white" />
-                </span>
-                <span className="text-[10px] uppercase font-bold tracking-widest text-green-100">Instantly Reach Us</span>
-              </div>
-              <h3 className="font-display text-xl uppercase font-bold relative z-10">Fast WhatsApp Consulting</h3>
-              <p className="text-xs text-green-50 font-light leading-relaxed relative z-10">
-                Prefer chatting directly? Message our safety consultation line for instant feedback on products, prices, or placement recommendations.
-              </p>
-              <div className="pt-2 relative z-10">
-                <a
-                  href="https://wa.me/96877210510?text=Hello%20SAMS%20LLC,%20I%20have%20an%20inquiry%20regarding%20automatic%20fire%20extinguishing%20products."
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-block bg-white hover:bg-gray-100 text-green-700 text-xs uppercase tracking-widest font-bold px-6 py-3.5 rounded-xl transition-all text-center w-full shadow-sm hover:shadow-md cursor-pointer hover:scale-[1.01]"
-                >
-                  Send WhatsApp Message
                 </a>
               </div>
             </div>
@@ -395,7 +378,7 @@ function ContactPageContent() {
           </div>
           <div className="relative w-full h-[450px] bg-gray-100 rounded-xl overflow-hidden border border-gray-200">
             <iframe
-              src="https://maps.google.com/maps?q=Darsait%20Muscat%20Oman&t=&z=14&ie=UTF8&iwloc=&output=embed"
+              src="https://maps.google.com/maps?q=Al%20Shumoor%20Building%20Ruwi%20Muscat%20Oman&t=&z=14&ie=UTF8&iwloc=&output=embed"
               width="100%"
               height="100%"
               style={{ border: 0 }}
@@ -406,9 +389,9 @@ function ContactPageContent() {
             />
           </div>
           <div className="flex justify-between items-center text-xs text-gray-500 pt-1">
-            <span className="font-semibold text-navy">SAMS Muscat Office (Darsait, Oman)</span>
+            <span className="font-semibold text-navy">SAMS Muscat Office (Ruwi, Oman)</span>
             <a
-              href="https://maps.google.com/?q=Darsait+Muscat+Oman"
+              href="https://maps.google.com/?q=Al+Shumoor+Building+Ruwi+Muscat+Oman"
               target="_blank"
               rel="noopener noreferrer"
               className="text-fire font-bold hover:underline"

@@ -47,7 +47,7 @@ const DEFAULT_PRODUCTS: Product[] = [
     product_type: 'Fire Extinguisher Ball',
     short_description: 'Compact self-activating baby fire safety ball designed for vehicles, electrical panels, and tight spaces.',
     overview: 'The GFO Baby Fire Ball 400 gms is a compact automatic fire suppression product designed for small spaces, car engines, and home electrical cabinets. It activates instantly when it comes into contact with open flames, helping suppress fire before it can spread.',
-    price: 12.000,
+    price: 15.600,
     currency: 'OMR',
     weight: '400 gms',
     life_years: 5,
@@ -79,7 +79,7 @@ const DEFAULT_PRODUCTS: Product[] = [
     product_type: 'Fire Extinguisher Ball',
     short_description: 'A versatile automatic fire safety ball ideal for homes, kitchens, and general fire-risk zones.',
     overview: 'The GFO Fire Ball Extinguisher 1.3 kg is an automatic fire safety solution suitable for homes, offices, kitchens, stores, and general fire-risk zones. It can be placed or mounted in areas where fast automatic fire response is needed.',
-    price: 15.000,
+    price: 19.500,
     currency: 'OMR',
     weight: '1.3 kgs',
     life_years: 5,
@@ -110,7 +110,7 @@ const DEFAULT_PRODUCTS: Product[] = [
     product_type: 'Fire Extinguisher Ball',
     short_description: 'An automatic fire extinguisher ball optimized for residential, commercial, and shop security.',
     overview: 'The AFO Fire Ball Extinguisher 1.5 kg is a practical automatic fire suppression product designed for quick activation during fire emergencies. It provides added protection in residential, commercial, and retail environments.',
-    price: 18.000,
+    price: 23.400,
     currency: 'OMR',
     weight: '1.5 kgs',
     life_years: 5,
@@ -142,7 +142,7 @@ const DEFAULT_PRODUCTS: Product[] = [
     product_type: 'Fire Extinguisher Ball',
     short_description: 'Vibrant blue-green fire safety ball optimized for commercial shops and electrical panels.',
     overview: 'The GFO Green Fire Ball 1.3 kg provides passive automatic protection for spaces with active electrical or chemical risks. Features high-visibility green branding and robust rapid-fuse activation.',
-    price: 16.500,
+    price: 21.450,
     currency: 'OMR',
     weight: '1.3 kgs',
     life_years: 5,
@@ -174,7 +174,7 @@ const DEFAULT_PRODUCTS: Product[] = [
     product_type: 'Fire Drum',
     short_description: 'Heavy-duty cylindrical fire suppression drum designed for passive industrial safety coverage.',
     overview: 'The GFO Fire Drum 5 kg is a heavy-duty automatic fire suppression cylindrical drum designed for larger industrial spaces, factories, and warehouses. It triggers automatically when exposed to open flame.',
-    price: 40.000,
+    price: 52.000,
     currency: 'OMR',
     weight: '5 kgs',
     life_years: 5,
@@ -206,7 +206,7 @@ const DEFAULT_PRODUCTS: Product[] = [
     product_type: 'Fire Extinguisher Flower Pot',
     short_description: 'An elegant, decorative automatic fire extinguishing pot matching room decor.',
     overview: 'The GFO Flowerpot Extinguisher 1.3 kg combines safety and decoration in one product. It is designed to look like a flower pot while functioning as an automatic fire suppression device when exposed to flames.',
-    price: 18.000,
+    price: 23.400,
     currency: 'OMR',
     weight: '1.3 kgs',
     life_years: 5,
@@ -401,10 +401,10 @@ const DEFAULT_CERTIFICATES: Certificate[] = [
 const DEFAULT_SITE_SETTINGS: SiteSetting[] = [
   { id: 's1', key: 'hero_headline', value: 'PROTECT WHAT\nMATTERS\nBEFORE FIRE\nSPREADS', updated_at: new Date().toISOString() },
   { id: 's2', key: 'hero_subtitle', value: 'Explore automatic fire extinguishing solutions designed to activate quickly, help reduce fire spread, and provide peace of mind for homes, offices, vehicles, warehouses, and industrial spaces.', updated_at: new Date().toISOString() },
-  { id: 's3', key: 'contact_phone', value: '+968 24000000', updated_at: new Date().toISOString() },
-  { id: 's4', key: 'contact_whatsapp', value: '+968 90000000', updated_at: new Date().toISOString() },
-  { id: 's5', key: 'contact_email', value: 'info@sams-oman.com', updated_at: new Date().toISOString() },
-  { id: 's6', key: 'contact_address', value: 'Muscat, Sultanate of Oman', updated_at: new Date().toISOString() },
+  { id: 's3', key: 'contact_phone', value: '+968 77554070', updated_at: new Date().toISOString() },
+  { id: 's4', key: 'contact_whatsapp', value: '+968 77554070', updated_at: new Date().toISOString() },
+  { id: 's5', key: 'contact_email', value: 'info@samsoman.com', updated_at: new Date().toISOString() },
+  { id: 's6', key: 'contact_address', value: 'Unit No. 2, Al Shumoor Building, Way no 2706, CBD, Ruwi, Muscat, Sultanate of Oman', updated_at: new Date().toISOString() },
   { id: 's7', key: 'currency', value: 'OMR', updated_at: new Date().toISOString() }
 ];
 
@@ -413,7 +413,7 @@ function getLocalData<T>(key: string, defaultValue: T[]): T[] {
   if (typeof window === 'undefined') return defaultValue;
   let data = localStorage.getItem(key);
   
-  // Auto-update local storage if we updated the default product images
+  // Auto-update local storage if we updated the default product images or prices
   if (key === 'sams_products' && data) {
     try {
       const parsed = JSON.parse(data) as any[];
@@ -427,13 +427,33 @@ function getLocalData<T>(key: string, defaultValue: T[]): T[] {
           img.includes('gfo_fire_drum.png')
         )
       );
-      if (hasOldImages) {
-        console.log('Old product image paths detected. Resetting local storage product data to new downloads images.');
+      const hasOldPrices = parsed.some(p => 
+        p.price === 12 || p.price === 15 || p.price === 18 || p.price === 16.5 || p.price === 40
+      );
+      if (hasOldImages || hasOldPrices) {
+        console.log('Old product data or prices detected. Resetting local storage product data.');
         localStorage.removeItem('sams_products');
         data = null;
       }
     } catch (e) {
       console.error('Error parsing local product data:', e);
+    }
+  }
+
+  // Auto-update site settings if they contain the old phone number or email
+  if (key === 'sams_site_settings' && data) {
+    try {
+      const parsed = JSON.parse(data) as any[];
+      const hasOldSettings = parsed.some(s => 
+        s.value === '+968 24000000' || s.value === 'info@sams-oman.com'
+      );
+      if (hasOldSettings) {
+        console.log('Old site settings detected. Resetting local storage settings data.');
+        localStorage.removeItem('sams_site_settings');
+        data = null;
+      }
+    } catch (e) {
+      console.error('Error parsing local site settings:', e);
     }
   }
 

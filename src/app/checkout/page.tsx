@@ -14,7 +14,8 @@ import {
   ArrowLeft, 
   Loader2, 
   CheckCircle2, 
-  AlertCircle 
+  AlertCircle,
+  Lock
 } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
 import { dbService } from '@/services/dbService';
@@ -52,7 +53,7 @@ export default function CheckoutPage() {
   } = useForm<CheckoutFormValues>({
     resolver: zodResolver(checkoutSchema),
     defaultValues: {
-      flow: 'online',
+      flow: 'manual',
     }
   });
 
@@ -168,10 +169,10 @@ export default function CheckoutPage() {
         <div className="max-w-xl mx-auto px-6 text-center space-y-6">
           <CheckCircle2 className="w-16 h-16 text-green-600 mx-auto" />
           <h1 className="font-display text-3xl sm:text-4xl font-bold uppercase tracking-wider text-navy">
-            Quotation Request Received
+            Quotation Enquiry Received
           </h1>
           <div className="bg-light-grey p-6 rounded-xl border border-gray-150 text-left text-sm space-y-3 font-light">
-            <p><strong>Inquiry ID:</strong> {orderSuccess.id}</p>
+            <p><strong>Enquiry ID:</strong> {orderSuccess.id}</p>
             <p><strong>Customer Name:</strong> {orderSuccess.customer_name}</p>
             <p><strong>Total Quotation Amount:</strong> {Number(orderSuccess.total_amount).toFixed(3)} OMR</p>
             <p className="text-gray-500 pt-1 leading-relaxed">
@@ -214,7 +215,7 @@ export default function CheckoutPage() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12">
         <h1 className="font-display text-3xl sm:text-4xl font-bold uppercase tracking-wider text-navy mb-8">
-          Complete Your Order / Inquiry
+          Complete Your Order / Enquiry
         </h1>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
@@ -235,29 +236,6 @@ export default function CheckoutPage() {
                 <label className="text-xs uppercase tracking-wider text-gray-700 font-bold">Select Order Type</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   
-                  {/* Online Flow */}
-                  <label className={`border-2 rounded-xl p-5 flex items-start gap-3 cursor-pointer transition-all ${
-                    selectedFlow === 'online' 
-                      ? 'border-fire bg-light-grey/30' 
-                      : 'border-gray-200 hover:border-gray-400 bg-white'
-                  }`}>
-                    <input
-                      type="radio"
-                      value="online"
-                      {...register('flow')}
-                      className="accent-fire w-4 h-4 mt-0.5 shrink-0"
-                    />
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-1 text-sm font-bold text-navy">
-                        <CreditCard className="w-4 h-4 text-fire" />
-                        <span>Online Credit Card</span>
-                      </div>
-                      <p className="text-xs text-gray-500 font-light leading-relaxed">
-                        Pay securely online via <strong>Paymob</strong> using international or local cards.
-                      </p>
-                    </div>
-                  </label>
-
                   {/* Manual Flow */}
                   <label className={`border-2 rounded-xl p-5 flex items-start gap-3 cursor-pointer transition-all ${
                     selectedFlow === 'manual' 
@@ -273,13 +251,36 @@ export default function CheckoutPage() {
                     <div className="space-y-1">
                       <div className="flex items-center gap-1 text-sm font-bold text-navy">
                         <FileText className="w-4 h-4 text-fire" />
-                        <span>Quotation / Invoice Inquiry</span>
+                        <span>Quotation / Invoice Enquiry</span>
                       </div>
                       <p className="text-xs text-gray-500 font-light leading-relaxed">
                         Request a custom quote. Our sales specialists will contact you directly to process payment offline.
                       </p>
                     </div>
                   </label>
+
+                  {/* Online Flow - Blurred & Locked */}
+                  <div className="border-2 border-gray-200/50 rounded-xl p-5 flex items-start gap-3 bg-gray-50/50 opacity-60 filter blur-[1px] relative cursor-not-allowed select-none pointer-events-none">
+                    <div className="absolute top-3 right-3 bg-navy text-white text-[8px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded flex items-center gap-1 shadow-sm">
+                      <Lock className="w-2.5 h-2.5" />
+                      Locked
+                    </div>
+                    <input
+                      type="radio"
+                      disabled
+                      value="online"
+                      className="w-4 h-4 mt-0.5 shrink-0 accent-gray-400"
+                    />
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1 text-sm font-bold text-gray-450">
+                        <CreditCard className="w-4 h-4 text-gray-400" />
+                        <span>Online Credit Card</span>
+                      </div>
+                      <p className="text-xs text-gray-450 font-light leading-relaxed">
+                        Pay securely online via <strong>Paymob</strong> using international or local cards. (Offline)
+                      </p>
+                    </div>
+                  </div>
 
                 </div>
               </div>
@@ -392,7 +393,7 @@ export default function CheckoutPage() {
                 ) : (
                   <>
                     <FileText className="w-4 h-4" />
-                    Submit Quotation Inquiry
+                    Submit Quotation Enquiry
                   </>
                 )}
               </button>
@@ -426,19 +427,27 @@ export default function CheckoutPage() {
             </div>
 
             {/* Totals */}
-            <div className="border-t border-gray-150 pt-4 space-y-2">
+            <div className="border-t border-gray-150 pt-4 space-y-3">
               <div className="flex justify-between text-xs text-gray-500">
                 <span>Subtotal</span>
                 <span>{getTotalAmount().toFixed(3)} OMR</span>
               </div>
-              <div className="flex justify-between text-xs text-gray-500">
-                <span>Local Shipping (Oman Courier)</span>
-                <span className="text-green-600 font-semibold uppercase tracking-wider text-[10px]">Free Shipping</span>
+              <div className="flex flex-col gap-1 border-b border-gray-100 pb-3">
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>Local Shipping (Oman Courier)</span>
+                  <span className="text-fire font-bold uppercase tracking-wider text-[10px]">Calculated Later</span>
+                </div>
+                <p className="text-[10px] text-gray-400 font-light leading-normal">
+                  * Note: Shipment fees apply. SAMS does not provide free shipping. The delivery cost will be determined based on your governorate/location and shared with you directly via WhatsApp or email.
+                </p>
               </div>
-              <div className="flex justify-between text-base font-extrabold text-navy border-t border-gray-150 pt-3">
+              <div className="flex justify-between text-base font-extrabold text-navy pt-1">
                 <span>Grand Total</span>
                 <span>{getTotalAmount().toFixed(3)} OMR</span>
               </div>
+              <p className="text-[9px] text-gray-400 text-right font-light italic">
+                * Grand total excludes local delivery charges
+              </p>
             </div>
 
             {/* Safety Callout */}
