@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getSiteUrlFromRequest } from '@/lib/siteUrl';
 
 export async function GET(request: Request) {
   try {
@@ -10,8 +11,8 @@ export async function GET(request: Request) {
     const pending = searchParams.get('pending') === 'true';
     const merchantOrderId = searchParams.get('merchant_order_id');
     
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-    
+    const siteUrl = getSiteUrlFromRequest(request);
+
     // Decipher result status
     const isSuccessful = success && !pending;
     
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
 
   } catch (error) {
     console.error('Paymob return processing failed:', error);
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+    const siteUrl = getSiteUrlFromRequest(request);
     return NextResponse.redirect(`${siteUrl}/checkout/result?success=false`);
   }
 }

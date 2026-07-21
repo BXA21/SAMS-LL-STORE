@@ -11,8 +11,27 @@ const DEFAULT_PRICES: Record<string, number> = {
   'p6': 18.000,
 };
 
+// Online card payment is only offered once real Paymob credentials are present.
+// Until then the route refuses up front rather than handing the customer a
+// redirect to a gateway that cannot complete the payment.
+function isPaymobConfigured(): boolean {
+  const apiKey = process.env.PAYMOB_API_KEY;
+  return Boolean(apiKey) && !apiKey!.includes('placeholder');
+}
+
 export async function POST(request: Request) {
   try {
+    if (!isPaymobConfigured()) {
+      return NextResponse.json(
+        {
+          message:
+            'Online card payment is not available yet. Please submit a quotation request and our sales team will contact you to arrange payment.',
+          code: 'ONLINE_PAYMENT_UNAVAILABLE',
+        },
+        { status: 503 }
+      );
+    }
+
     const { customerDetails, cartItems } = await request.json();
 
     if (!customerDetails || !cartItems || cartItems.length === 0) {
@@ -70,23 +89,6 @@ export async function POST(request: Request) {
     });
 
     const orderId = pendingOrder.id;
-
-    // 3. Process Payment Gateway Registration
-    const isPaymobConfigured = 
-      process.env.PAYMOB_API_KEY && 
-      !process.env.PAYMOB_API_KEY.includes('placeholder');
-
-    if (!isPaymobConfigured) {
-      // Return simulated sandbox URL for local testing fallback
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-      const simulatedPaymentUrl = `${siteUrl}/paymob-simulate?orderId=${orderId}&amount=${calculatedTotal.toFixed(3)}`;
-      
-      return NextResponse.json({ 
-        orderId, 
-        paymentUrl: simulatedPaymentUrl, 
-        message: 'Simulated payment gateway initialized successfully' 
-      });
-    }
 
     // --- PAYMOB REAL API CALLS ---
     // (Omani minor unit conversion: Math.round(amount * 1000))

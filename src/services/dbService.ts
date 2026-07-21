@@ -408,11 +408,43 @@ const DEFAULT_SITE_SETTINGS: SiteSetting[] = [
   { id: 's7', key: 'currency', value: 'OMR', updated_at: new Date().toISOString() }
 ];
 
+/*
+ * localStorage is unavailable or throws in several environments real customers
+ * browse from: Safari with "Block All Cookies", private/incognito modes, and
+ * the in-app webviews used by WhatsApp, Instagram and Facebook. An uncaught
+ * SecurityError/QuotaExceededError here rejects getProducts() and leaves the
+ * catalog, testimonials and FAQ empty, so every access is guarded and the app
+ * degrades to the default data instead of failing.
+ */
+function safeGetItem(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSetItem(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Storage is unavailable or full; in-memory defaults remain correct.
+  }
+}
+
+function safeRemoveItem(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Nothing to clean up if storage is unavailable.
+  }
+}
+
 // Helper to initialize local storage mock data on client
 function getLocalData<T>(key: string, defaultValue: T[]): T[] {
   if (typeof window === 'undefined') return defaultValue;
-  let data = localStorage.getItem(key);
-  
+  let data = safeGetItem(key);
+
   // Auto-update local storage if we updated the default product images or prices
   if (key === 'sams_products' && data) {
     try {
@@ -431,8 +463,7 @@ function getLocalData<T>(key: string, defaultValue: T[]): T[] {
         p.price === 12 || p.price === 15 || p.price === 18 || p.price === 16.5 || p.price === 40
       );
       if (hasOldImages || hasOldPrices) {
-        console.log('Old product data or prices detected. Resetting local storage product data.');
-        localStorage.removeItem('sams_products');
+        safeRemoveItem('sams_products');
         data = null;
       }
     } catch (e) {
@@ -448,8 +479,7 @@ function getLocalData<T>(key: string, defaultValue: T[]): T[] {
         s.value === '+968 24000000' || s.value === 'info@sams-oman.com'
       );
       if (hasOldSettings) {
-        console.log('Old site settings detected. Resetting local storage settings data.');
-        localStorage.removeItem('sams_site_settings');
+        safeRemoveItem('sams_site_settings');
         data = null;
       }
     } catch (e) {
@@ -458,15 +488,22 @@ function getLocalData<T>(key: string, defaultValue: T[]): T[] {
   }
 
   if (!data) {
-    localStorage.setItem(key, JSON.stringify(defaultValue));
+    safeSetItem(key, JSON.stringify(defaultValue));
     return defaultValue;
   }
-  return JSON.parse(data);
+
+  try {
+    return JSON.parse(data);
+  } catch {
+    // Corrupted entry: fall back to defaults rather than breaking the page.
+    safeRemoveItem(key);
+    return defaultValue;
+  }
 }
 
 function setLocalData<T>(key: string, value: T[]): void {
   if (typeof window !== 'undefined') {
-    localStorage.setItem(key, JSON.stringify(value));
+    safeSetItem(key, JSON.stringify(value));
   }
 }
 

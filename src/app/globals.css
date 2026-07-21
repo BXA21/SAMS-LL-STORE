@@ -25,6 +25,33 @@
   --font-display: 'Oswald', sans-serif;
 }
 
+/*
+ * Intermediate shades used throughout the UI that sit between Tailwind's
+ * default steps, plus a lighter tint of the brand red for accents on dark
+ * panels. Without these definitions the corresponding utilities compile to
+ * nothing, which silently drops backgrounds (notably the hero section) and
+ * leaves text rendering in its inherited colour.
+ */
+@theme {
+  --color-gray-55: #f8f9fa;
+  --color-gray-105: #f1f2f5;
+  --color-gray-150: #ebedf0;
+  --color-gray-205: #e2e5e9;
+  --color-gray-250: #dbdee3;
+  --color-gray-350: #b8bec9;
+  --color-gray-405: #97a0ad;
+  --color-gray-450: #828b99;
+  --color-gray-505: #68707f;
+  --color-gray-550: #5a6273;
+  --color-gray-555: #58606f;
+  --color-gray-650: #404b5c;
+  --color-gray-850: #17202f;
+
+  --color-red-150: #ffd6d6;
+
+  --color-fire-400: #f4595d;
+}
+
 body {
   background-color: var(--background);
   color: var(--foreground);
@@ -33,5 +60,34 @@ body {
 
 h1, h2, h3, h4, h5, h6 {
   font-family: 'Oswald', sans-serif;
+}
+
+/*
+ * Hero entrance animation.
+ *
+ * Driven by CSS rather than a JS animation library so the headline is painted
+ * as soon as the HTML arrives. A JS-driven fade-in ships markup with
+ * `opacity: 0`, which leaves the hero blank for anyone whose client bundle is
+ * slow, blocked, or fails to hydrate.
+ */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-rise-in {
+  animation: rise-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise-in {
+    animation: none;
+  }
 }
 

@@ -1,9 +1,4 @@
-'use client';
-
 import React from 'react';
-import Link from 'next/link';
-import { ArrowRight, MessageSquare } from 'lucide-react';
-import { motion } from 'framer-motion';
 
 export default function Hero() {
   return (
@@ -23,15 +18,10 @@ export default function Hero() {
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full z-10">
         <div className="max-w-[90%] sm:max-w-[80%] md:max-w-[58%] lg:max-w-[55%] text-white">
           {/* Heading */}
-          <motion.h1
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.1 }}
-            className="font-display text-5xl sm:text-6xl md:text-7xl lg:text-[80px] xl:text-[95px] 2xl:text-[110px] font-bold tracking-tight leading-[0.92] text-white select-none"
-          >
+          <h1 className="animate-rise-in font-display text-5xl sm:text-6xl md:text-7xl lg:text-[80px] xl:text-[95px] 2xl:text-[110px] font-bold tracking-tight leading-[0.92] text-white select-none">
             Protect what<br />
             matters from fire
-          </motion.h1>
+          </h1>
         </div>
       </div>
     </section>
