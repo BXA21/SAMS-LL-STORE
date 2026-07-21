@@ -8,7 +8,9 @@
 
 // Canonical production origin. Used as the last resort so that a missing
 // NEXT_PUBLIC_SITE_URL can degrade to the real site instead of localhost.
-export const PRODUCTION_SITE_URL = 'https://samsllc.netlify.app';
+// Keep in step with the Netlify project name; the previous
+// samsllc.netlify.app address was released when the project was renamed.
+export const PRODUCTION_SITE_URL = 'https://samsllcoman.netlify.app';
 
 const LOCAL_SITE_URL = 'http://localhost:3000';
 
