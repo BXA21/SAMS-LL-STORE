@@ -5,22 +5,28 @@ import { Star, Quote } from 'lucide-react';
 import { dbService } from '@/services/dbService';
 import { Testimonial } from '@/types/database';
 
-export default function Testimonials() {
-  const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
-  const [loading, setLoading] = useState(true);
+interface TestimonialsProps {
+  /* Supplied by the server so the section is in the HTML without JavaScript. */
+  initialTestimonials: Testimonial[];
+}
+
+export default function Testimonials({ initialTestimonials }: TestimonialsProps) {
+  const [testimonials, setTestimonials] = useState<Testimonial[]>(initialTestimonials);
 
   useEffect(() => {
-    async function loadTestimonials() {
+    let cancelled = false;
+    async function refreshTestimonials() {
       try {
         const data = await dbService.getTestimonials();
-        setTestimonials(data);
+        if (!cancelled && data.length) setTestimonials(data);
       } catch (err) {
         console.error(err);
-      } finally {
-        setLoading(false);
       }
     }
-    loadTestimonials();
+    refreshTestimonials();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -44,13 +50,7 @@ export default function Testimonials() {
         </div>
 
         {/* Testimonials Grid */}
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="animate-pulse bg-white p-8 rounded-xl h-48 border border-gray-150" />
-            ))}
-          </div>
-        ) : (
+        {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {testimonials.map((test) => (
               <div 
@@ -92,7 +92,7 @@ export default function Testimonials() {
               </div>
             ))}
           </div>
-        )}
+        }
       </div>
     </section>
   );

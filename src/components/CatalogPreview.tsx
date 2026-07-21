@@ -8,24 +8,34 @@ import { dbService } from '@/services/dbService';
 import { Product } from '@/types/database';
 import { useCartStore } from '@/store/cartStore';
 
-export default function CatalogPreview() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
+interface CatalogPreviewProps {
+  /* Supplied by the server so the featured products are in the HTML. */
+  initialProducts: Product[];
+}
+
+export default function CatalogPreview({ initialProducts }: CatalogPreviewProps) {
+  const [products, setProducts] = useState<Product[]>(initialProducts);
   const addItem = useCartStore((state) => state.addItem);
 
+  /*
+   * Refresh after mount purely to pick up admin edits stored in this
+   * browser. It must not blank the list or re-enter a loading state, since
+   * the server already rendered a usable preview.
+   */
   useEffect(() => {
-    async function loadProducts() {
+    let cancelled = false;
+    async function refreshProducts() {
       try {
         const data = await dbService.getProducts();
-        // Show up to 6 items (3x2 grid)
-        setProducts(data.slice(0, 6));
+        if (!cancelled && data.length) setProducts(data.slice(0, 6));
       } catch (err) {
         console.error(err);
-      } finally {
-        setLoading(false);
       }
     }
-    loadProducts();
+    refreshProducts();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleAddToCart = (e: React.MouseEvent, prod: Product) => {
@@ -70,13 +80,7 @@ export default function CatalogPreview() {
         </div>
 
         {/* Product Grid */}
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-            {[1, 2, 3, 4, 5, 6].map((i) => (
-              <div key={i} className="animate-pulse bg-gray-150 aspect-[3/4] rounded-2xl" />
-            ))}
-          </div>
-        ) : (
+        {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto justify-center">
             {products.map((prod) => (
               <div 
@@ -164,7 +168,7 @@ export default function CatalogPreview() {
               </div>
             ))}
           </div>
-        )}
+        }
       </div>
     </section>
   );

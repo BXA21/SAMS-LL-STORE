@@ -5,23 +5,29 @@ import { ChevronDown, Plus, Minus } from 'lucide-react';
 import { dbService } from '@/services/dbService';
 import { FAQ } from '@/types/database';
 
-export default function FAQComponent() {
-  const [faqs, setFaqs] = useState<FAQ[]>([]);
-  const [loading, setLoading] = useState(true);
+interface FAQComponentProps {
+  /* Supplied by the server so the questions are in the HTML without JavaScript. */
+  initialFaqs: FAQ[];
+}
+
+export default function FAQComponent({ initialFaqs }: FAQComponentProps) {
+  const [faqs, setFaqs] = useState<FAQ[]>(initialFaqs);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   useEffect(() => {
-    async function loadFaqs() {
+    let cancelled = false;
+    async function refreshFaqs() {
       try {
         const data = await dbService.getFAQs();
-        setFaqs(data);
+        if (!cancelled && data.length) setFaqs(data);
       } catch (err) {
         console.error(err);
-      } finally {
-        setLoading(false);
       }
     }
-    loadFaqs();
+    refreshFaqs();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const toggleFAQ = (index: number) => {
@@ -53,13 +59,7 @@ export default function FAQComponent() {
         </div>
 
         {/* FAQ list */}
-        {loading ? (
-          <div className="space-y-4">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="animate-pulse bg-gray-50 border border-gray-150 h-16 rounded-xl" />
-            ))}
-          </div>
-        ) : (
+        {
           <div className="space-y-4">
             {faqs.map((faq, idx) => {
               const isOpen = openIndex === idx;
@@ -99,7 +99,7 @@ export default function FAQComponent() {
               );
             })}
           </div>
-        )}
+        }
       </div>
     </section>
   );
