@@ -37,7 +37,7 @@ const DEFAULT_CATEGORIES: Category[] = [
   }
 ];
 
-const DEFAULT_PRODUCTS: Product[] = [
+export const DEFAULT_PRODUCTS: Product[] = [
   {
     id: 'p1',
     name: 'GFO Baby Fire Ball 400 gms',
@@ -440,52 +440,35 @@ function safeRemoveItem(key: string): void {
   }
 }
 
+/*
+ * The seeded defaults are copied into localStorage on a visitor's first load, so
+ * without a version stamp a returning visitor keeps rendering whatever was cached
+ * back then and a price or contact-detail change never reaches them. The previous
+ * approach sniffed for known-old values, which silently breaks the moment a new
+ * price reuses one of those numbers. Bump SEED_VERSION whenever DEFAULT_PRODUCTS
+ * or DEFAULT_SITE_SETTINGS change and every browser reseeds once on its next load.
+ */
+const SEED_VERSION = '2026-09-03-pricing';
+const SEED_VERSION_KEY = 'sams_seed_version';
+const VERSIONED_SEED_KEYS = ['sams_products', 'sams_site_settings'];
+
+let seedVersionChecked = false;
+
+function ensureSeedVersion(): void {
+  if (seedVersionChecked || typeof window === 'undefined') return;
+  seedVersionChecked = true;
+
+  if (safeGetItem(SEED_VERSION_KEY) === SEED_VERSION) return;
+
+  VERSIONED_SEED_KEYS.forEach(safeRemoveItem);
+  safeSetItem(SEED_VERSION_KEY, SEED_VERSION);
+}
+
 // Helper to initialize local storage mock data on client
 function getLocalData<T>(key: string, defaultValue: T[]): T[] {
   if (typeof window === 'undefined') return defaultValue;
-  let data = safeGetItem(key);
-
-  // Auto-update local storage if we updated the default product images or prices
-  if (key === 'sams_products' && data) {
-    try {
-      const parsed = JSON.parse(data) as any[];
-      const hasOldImages = parsed.some(p => 
-        p.images && p.images.some((img: string) => 
-          img.includes('gfo_baby_fire_ball.png') || 
-          img.includes('gfo_fire_ball.png') || 
-          img.includes('afo_fire_ball.png') || 
-          img.includes('gfo_flowerpot_extinguisher.png') ||
-          img.includes('gfo_green_fire_ball.png') ||
-          img.includes('gfo_fire_drum.png')
-        )
-      );
-      const hasOldPrices = parsed.some(p => 
-        p.price === 12 || p.price === 15 || p.price === 18 || p.price === 16.5 || p.price === 40
-      );
-      if (hasOldImages || hasOldPrices) {
-        safeRemoveItem('sams_products');
-        data = null;
-      }
-    } catch (e) {
-      console.error('Error parsing local product data:', e);
-    }
-  }
-
-  // Auto-update site settings if they contain the old phone number or email
-  if (key === 'sams_site_settings' && data) {
-    try {
-      const parsed = JSON.parse(data) as any[];
-      const hasOldSettings = parsed.some(s => 
-        s.value === '+968 24000000' || s.value === 'info@sams-oman.com'
-      );
-      if (hasOldSettings) {
-        safeRemoveItem('sams_site_settings');
-        data = null;
-      }
-    } catch (e) {
-      console.error('Error parsing local site settings:', e);
-    }
-  }
+  ensureSeedVersion();
+  const data = safeGetItem(key);
 
   if (!data) {
     safeSetItem(key, JSON.stringify(defaultValue));

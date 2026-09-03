@@ -1,15 +1,12 @@
 import { NextResponse } from 'next/server';
-import { dbService } from '@/services/dbService';
+import { dbService, DEFAULT_PRODUCTS } from '@/services/dbService';
 
-// Fallback pricing list for server-side validation when Supabase is not connected
-const DEFAULT_PRICES: Record<string, number> = {
-  'p1': 12.000,
-  'p2': 15.000,
-  'p3': 18.000,
-  'p4': 30.000,
-  'p5': 40.000,
-  'p6': 18.000,
-};
+// Fallback pricing for server-side validation when Supabase is not connected.
+// Derived from the same DEFAULT_PRODUCTS the catalog renders from, so a price
+// change in one place can never leave checkout charging a stale amount.
+const DEFAULT_PRICES: Record<string, number> = Object.fromEntries(
+  DEFAULT_PRODUCTS.map((product) => [product.id, Number(product.price)])
+);
 
 // Online card payment is only offered once real Paymob credentials are present.
 // Until then the route refuses up front rather than handing the customer a
