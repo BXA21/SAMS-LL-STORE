@@ -25,6 +25,9 @@ interface CartState {
   getTotalAmount: () => number;
 }
 
+// Bump whenever product pricing changes so persisted carts cannot show stale prices.
+const CART_PRICING_VERSION = 1;
+
 export const useCartStore = create<CartState>()(
   persist(
     (set, get) => ({
@@ -74,6 +77,16 @@ export const useCartStore = create<CartState>()(
     }),
     {
       name: 'sams-cart-storage',
+      /*
+       * A cart item stores the price it was added at, so a cart left sitting in
+       * a browser from before a price change keeps showing the old amount in the
+       * drawer and the checkout summary. The server recalculates the real total
+       * before taking payment, so the customer is never charged the stale figure,
+       * but they should not be shown it either. Bump this version alongside a
+       * price change and pre-existing carts are dropped once on next load.
+       */
+      version: CART_PRICING_VERSION,
+      migrate: () => ({ items: [], isOpen: false }),
     }
   )
 );

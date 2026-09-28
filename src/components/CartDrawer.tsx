@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { X, Plus, Minus, Trash2, ShoppingBag, ArrowRight } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCartStore } from '@/store/cartStore';
+import { useHydrated } from '@/lib/useHydrated';
 
 export default function CartDrawer() {
   const { 
@@ -18,11 +19,7 @@ export default function CartDrawer() {
     getItemCount 
   } = useCartStore();
 
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useHydrated();
 
   // Prevent background scroll when cart drawer is open
   useEffect(() => {

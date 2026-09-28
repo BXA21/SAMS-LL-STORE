@@ -1,95 +1,73 @@
 import { NextResponse } from 'next/server';
-import crypto from 'crypto';
-import { dbService } from '@/services/dbService';
+import { logServer } from '@/lib/apiHelpers';
+import { normalizeCallback, verifyCallbackHmac } from '@/lib/paymob';
+import { getPaymobConfig } from '@/lib/serverEnv';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+/**
+ * Paymob "transaction processed" callback: the source of truth for payment.
+ *
+ * 1. Verify the HMAC-SHA512 signature (fail closed, constant time).
+ * 2. Hand the normalized transaction to apply_paymob_transaction, which locks
+ *    the order, ignores replays, checks the amount and currency against the
+ *    order, and never moves a paid order backwards.
+ *
+ * Responses: 200 once handled (including duplicates and unknown references, so
+ * Paymob stops retrying), 401 on a bad signature, 500 only on our own failure
+ * so Paymob retries.
+ */
 export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    
-    // Check if simulated callback (development testing)
-    if (body.is_simulated && body.orderId) {
-      const orderId = body.orderId;
-      const success = body.success;
-      
-      const newStatus = success ? 'paid' : 'failed';
-      const paymentStatus = success ? 'successful' : 'failed';
-      
-      await dbService.updateOrderStatus(orderId, newStatus, paymentStatus);
-      return NextResponse.json({ message: 'Simulated order status updated' });
-    }
-
-    // --- REAL PAYMOB HMAC SIGNATURE VERIFICATION ---
-    const hmacSecret = process.env.PAYMOB_HMAC_SECRET || '';
-    const hmacHeader = request.headers.get('hmac') || new URL(request.url).searchParams.get('hmac');
-
-    if (!hmacHeader) {
-      return NextResponse.json({ message: 'Missing hmac signature' }, { status: 400 });
-    }
-
-    const txn = body.obj;
-    if (!txn) {
-      return NextResponse.json({ message: 'Invalid payload' }, { status: 400 });
-    }
-
-    // Paymob signature validation fields in exact required concatenation sequence
-    const dataToHash = [
-      txn.amount_cents,
-      txn.created_at,
-      txn.currency,
-      txn.error_occured,
-      txn.has_parent_transaction,
-      txn.id,
-      txn.integration_id,
-      txn.is_3d_secure,
-      txn.is_auth,
-      txn.is_capture,
-      txn.is_voided,
-      txn.is_refunded,
-      txn.owner,
-      txn.pending,
-      txn.source_data?.pan,
-      txn.source_data?.sub_type,
-      txn.source_data?.type,
-      txn.success
-    ].map(val => (val === undefined || val === null ? '' : String(val))).join('');
-
-    const calculatedHmac = crypto
-      .createHmac('sha512', hmacSecret)
-      .update(dataToHash)
-      .digest('hex');
-
-    const isSignatureValid = crypto.timingSafeEqual(
-      Buffer.from(calculatedHmac),
-      Buffer.from(hmacHeader)
-    );
-
-    if (!isSignatureValid) {
-      console.warn('Invalid Paymob signature HMAC matching attempt!');
-      return NextResponse.json({ message: 'Invalid signature HMAC' }, { status: 401 });
-    }
-
-    // Process Transaction Status
-    const paymobOrderId = txn.order?.id;
-    const isSuccess = txn.success === true && txn.pending === false;
-
-    // Find the matching order by Paymob Order ID in database
-    const orders = await dbService.getOrders();
-    const matchingOrder = orders.find(o => o.paymob_order_id === String(paymobOrderId) || o.id === String(txn.order?.merchant_order_id));
-
-    if (!matchingOrder) {
-      return NextResponse.json({ message: `Matching SAMS order not found for Paymob Order ID: ${paymobOrderId}` }, { status: 404 });
-    }
-
-    const orderStatus = isSuccess ? 'paid' : 'failed';
-    const paymentStatus = isSuccess ? 'successful' : 'failed';
-
-    // Update order status in Supabase/localStorage
-    await dbService.updateOrderStatus(matchingOrder.id, orderStatus, paymentStatus);
-
-    return NextResponse.json({ message: 'Order status updated successfully' });
-
-  } catch (error: any) {
-    console.error('Paymob Webhook process error:', error);
-    return NextResponse.json({ message: error.message || 'Webhook parsing failed' }, { status: 500 });
+  const paymob = getPaymobConfig();
+  const db = getSupabaseAdmin();
+  if (!paymob || !db) {
+    logServer('paymob_webhook_unconfigured');
+    return NextResponse.json({ received: false }, { status: 503 });
   }
+
+  const raw = await request.text();
+  if (raw.length > 64 * 1024) return NextResponse.json({ received: false }, { status: 413 });
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ received: false }, { status: 400 });
+  }
+
+  // Non-transaction callbacks (e.g. saved-card TOKEN) carry no payment state.
+  if (payload.type !== 'TRANSACTION' || !payload.obj || typeof payload.obj !== 'object') {
+    return NextResponse.json({ received: true, ignored: true });
+  }
+  const obj = payload.obj as Record<string, unknown>;
+
+  const hmac = new URL(request.url).searchParams.get('hmac');
+  if (!verifyCallbackHmac(paymob.hmacSecret, obj, hmac)) {
+    logServer('paymob_webhook_bad_hmac', { transaction: String(obj.id ?? '') });
+    return NextResponse.json({ received: false }, { status: 401 });
+  }
+
+  const txn = normalizeCallback(obj);
+  if (!txn) return NextResponse.json({ received: false }, { status: 400 });
+
+  const { data: outcome, error } = await db.rpc('apply_paymob_transaction', {
+    p_special_reference: txn.specialReference,
+    p_provider_order_id: txn.providerOrderId,
+    p_transaction_id: txn.transactionId,
+    p_amount_minor: txn.amountMinor,
+    p_currency: txn.currency,
+    p_success: txn.success,
+    p_pending: txn.pending,
+    p_payload: payload,
+  });
+
+  if (error) {
+    logServer('paymob_webhook_apply_failed', { transaction: txn.transactionId, message: error.message });
+    return NextResponse.json({ received: false }, { status: 500 });
+  }
+
+  logServer('paymob_webhook_applied', { transaction: txn.transactionId, reference: txn.specialReference, outcome });
+  return NextResponse.json({ received: true, outcome });
 }

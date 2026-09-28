@@ -4,36 +4,27 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Search, MapPin, Calendar, Clock, Package, Truck, CheckCircle2, ArrowRight, ShieldCheck, Loader2 } from 'lucide-react';
-import { dbService } from '@/services/dbService';
-import { Order } from '@/types/database';
+interface TrackedOrder {
+  order_number: string;
+  order_type: 'online' | 'quotation';
+  status: string;
+  payment_status: string;
+  total_amount: number;
+  currency: string;
+  items: { product_name: string; product_slug: string; weight: string; quantity: number; total_price: number }[];
+  customer_name_masked: string;
+  email_masked: string;
+  address_masked: string;
+  created_at: string;
+}
 
 export default function OrderTrackingPage() {
   const [orderId, setOrderId] = useState('');
   const [emailInput, setEmailInput] = useState('');
-  const [order, setOrder] = useState<Order | null>(null);
+  const [order, setOrder] = useState<TrackedOrder | null>(null);
   const [searched, setSearched] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [loading, setLoading] = useState(false);
-
-  // Masks customer name for privacy (e.g. Mohsin Abbas -> M**** A****)
-  const maskText = (text: string, type: 'name' | 'email' | 'address') => {
-    if (!text) return 'N/A';
-    if (type === 'name') {
-      return text.split(' ').map(p => p.length > 1 ? p[0] + '*'.repeat(p.length - 1) : p[0]).join(' ');
-    }
-    if (type === 'email') {
-      const parts = text.split('@');
-      if (parts.length < 2) return '***';
-      const name = parts[0];
-      const domain = parts[1];
-      const maskedName = name.length > 2 ? name[0] + '*'.repeat(name.length - 2) + name[name.length - 1] : name[0] + '*';
-      return `${maskedName}@${domain}`;
-    }
-    if (type === 'address') {
-      return text.length > 12 ? text.substring(0, 6) + '...' + text.substring(text.length - 4) : '***';
-    }
-    return '***';
-  };
 
   // Oman Logistics estimated delivery calculation
   // Delivery takes 1 to 3 business days
@@ -44,9 +35,9 @@ export default function OrderTrackingPage() {
     // Oman is UTC+4. In JS we calculate dates in UTC/local. Let's work with days.
     // Sunday is 0, Monday is 1, Tuesday is 2, Wednesday is 3, Thursday is 4, Friday is 5, Saturday is 6.
     let day = createdDate.getDay();
-    let hour = createdDate.getHours();
+    const hour = createdDate.getHours();
 
-    let processingStartDay = new Date(createdDate);
+    const processingStartDay = new Date(createdDate);
 
     // Determine processing start day
     const isWorkday = day >= 0 && day <= 4; // Sun-Thu
@@ -94,7 +85,7 @@ export default function OrderTrackingPage() {
   const handleTrack = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!orderId.trim() || !emailInput.trim()) {
-      setErrorMsg('Please enter both Order ID and Email Address.');
+      setErrorMsg('Please enter both your order number and the email or phone used at checkout.');
       return;
     }
 
@@ -104,18 +95,18 @@ export default function OrderTrackingPage() {
     setOrder(null);
 
     try {
-      const allOrders = await dbService.getOrders();
-      const matched = allOrders.find(
-        o => o.id.toLowerCase().trim() === orderId.toLowerCase().trim() && 
-             o.email.toLowerCase().trim() === emailInput.toLowerCase().trim()
-      );
-
-      if (matched) {
-        setOrder(matched);
+      const res = await fetch('/api/orders/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderNumber: orderId.trim(), contact: emailInput.trim() }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.data) {
+        setOrder(json.data as TrackedOrder);
       } else {
-        setErrorMsg('No order found with the provided ID and email. Please check your credentials.');
+        setErrorMsg(json.error?.message ?? 'No order found with those details. Please check and try again.');
       }
-    } catch (err) {
+    } catch {
       setErrorMsg('Error searching order status. Please try again.');
     } finally {
       setLoading(false);
@@ -167,11 +158,11 @@ export default function OrderTrackingPage() {
         <div className="bg-white rounded-3xl p-6 sm:p-10 border border-gray-150 shadow-xl space-y-6">
           <form onSubmit={handleTrack} className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
             <div className="sm:col-span-5 space-y-1.5 text-left">
-              <label className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Order ID / Reference</label>
+              <label className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Order Number</label>
               <input
                 type="text"
                 required
-                placeholder="e.g. 5x8a2b..."
+                placeholder="e.g. SAMS-10001"
                 value={orderId}
                 onChange={(e) => setOrderId(e.target.value)}
                 className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs focus:outline-none focus:border-fire text-gray-800"
@@ -179,11 +170,11 @@ export default function OrderTrackingPage() {
             </div>
 
             <div className="sm:col-span-5 space-y-1.5 text-left">
-              <label className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Email Address</label>
+              <label className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Email or Phone</label>
               <input
-                type="email"
+                type="text"
                 required
-                placeholder="e.g. customer@example.com"
+                placeholder="Email or phone used at checkout"
                 value={emailInput}
                 onChange={(e) => setEmailInput(e.target.value)}
                 className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs focus:outline-none focus:border-fire text-gray-800"
@@ -222,7 +213,7 @@ export default function OrderTrackingPage() {
               <div className="flex justify-between items-center pb-4 border-b border-gray-100">
                 <div className="text-left space-y-1">
                   <span className="text-[9px] uppercase tracking-widest text-gray-400 font-bold block">Invoice ref</span>
-                  <span className="font-mono font-bold text-navy text-xs">{order.id}</span>
+                  <span className="font-mono font-bold text-navy text-xs">{order.order_number}</span>
                 </div>
                 <div className="text-right space-y-1">
                   <span className="text-[9px] uppercase tracking-widest text-gray-400 font-bold block">Status</span>
@@ -364,19 +355,19 @@ export default function OrderTrackingPage() {
                 <div className="space-y-3.5 text-xs">
                   <div>
                     <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold block mb-0.5">Customer Name</span>
-                    <span className="font-bold text-navy">{maskText(order.customer_name, 'name')}</span>
+                    <span className="font-bold text-navy">{order.customer_name_masked}</span>
                   </div>
                   
                   <div>
                     <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold block mb-0.5">Email</span>
-                    <span className="font-medium text-gray-700">{maskText(order.email, 'email')}</span>
+                    <span className="font-medium text-gray-700">{order.email_masked}</span>
                   </div>
 
                   <div>
                     <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold block mb-0.5">Delivery Address</span>
                     <span className="text-gray-600 font-light flex items-start gap-1">
                       <MapPin className="w-3.5 h-3.5 text-fire shrink-0 mt-0.5" />
-                      <span>{maskText(order.address, 'address')}, Oman</span>
+                      <span>{order.address_masked}, Oman</span>
                     </span>
                   </div>
 

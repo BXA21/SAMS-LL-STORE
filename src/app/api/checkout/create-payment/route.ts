@@ -1,182 +1,108 @@
-import { NextResponse } from 'next/server';
-import { dbService, DEFAULT_PRODUCTS } from '@/services/dbService';
+import crypto from 'crypto';
+import { apiError, apiOk, logServer, readJson, withinRateLimit } from '@/lib/apiHelpers';
+import { createIntention, PaymobError, unifiedCheckoutUrl } from '@/lib/paymob';
+import { getPaymobConfig } from '@/lib/serverEnv';
+import { getSiteUrl } from '@/lib/siteUrl';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { checkoutSchema } from '@/lib/validation';
+import { createOrder } from '@/lib/orderFactory';
 
-// Fallback pricing for server-side validation when Supabase is not connected.
-// Derived from the same DEFAULT_PRODUCTS the catalog renders from, so a price
-// change in one place can never leave checkout charging a stale amount.
-const DEFAULT_PRICES: Record<string, number> = Object.fromEntries(
-  DEFAULT_PRODUCTS.map((product) => [product.id, Number(product.price)])
-);
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-// Online card payment is only offered once real Paymob credentials are present.
-// Until then the route refuses up front rather than handing the customer a
-// redirect to a gateway that cannot complete the payment.
-function isPaymobConfigured(): boolean {
-  const apiKey = process.env.PAYMOB_API_KEY;
-  return Boolean(apiKey) && !apiKey!.includes('placeholder');
+interface ItemSnapshot {
+  product_name: string;
+  quantity: number;
+  unit_price: number;
 }
 
+/**
+ * Online card checkout.
+ * Validate -> rate limit -> price and persist the order in Postgres -> create
+ * a Paymob intention -> return the hosted Unified Checkout URL. The order is
+ * marked paid later, only by an HMAC-verified Paymob callback.
+ */
 export async function POST(request: Request) {
+  const db = getSupabaseAdmin();
+  const paymob = getPaymobConfig();
+  if (!db || !paymob) {
+    return apiError(
+      503,
+      'ONLINE_PAYMENT_UNAVAILABLE',
+      'Online card payment is not available right now. Please submit a quotation request and our sales team will contact you.'
+    );
+  }
+
+  const body = await readJson(request, checkoutSchema);
+  if (!body.ok) return body.response;
+
+  if (!(await withinRateLimit(db, 'checkout', request, 8, 600))) {
+    return apiError(429, 'RATE_LIMITED', 'Too many checkout attempts. Please wait a few minutes and try again.');
+  }
+
+  const created = await createOrder(db, body.value, 'online');
+  if (!created.ok) return created.response;
+  const order = created.order;
+
+  const specialReference = `${order.order_number}-${crypto.randomBytes(3).toString('hex')}`;
+  const { data: payment, error: paymentError } = await db
+    .from('payments')
+    .insert({ order_id: order.order_id, special_reference: specialReference, amount_minor: order.total_minor, currency: 'OMR' })
+    .select('id')
+    .single();
+  if (paymentError || !payment) {
+    logServer('checkout_payment_insert_failed', { order: order.order_number, message: paymentError?.message });
+    return apiError(500, 'INTERNAL_ERROR', 'We could not start the payment. Please try again.');
+  }
+
+  const { data: orderRow } = await db.from('orders').select('items').eq('id', order.order_id).single();
+  const snapshots = (orderRow?.items ?? []) as ItemSnapshot[];
+  const items = snapshots.map((line) => ({
+    name: line.product_name,
+    amount: Math.round(Number(line.unit_price) * 1000),
+    quantity: line.quantity,
+  }));
+  const itemsTotal = items.reduce((sum, item) => sum + item.amount * item.quantity, 0);
+  const intentionItems =
+    itemsTotal === order.total_minor ? items : [{ name: `SAMS order ${order.order_number}`, amount: order.total_minor, quantity: 1 }];
+
+  const callbackBase = paymob.callbackBaseUrl ?? getSiteUrl();
+  const siteBase = getSiteUrl();
+
   try {
-    if (!isPaymobConfigured()) {
-      return NextResponse.json(
-        {
-          message:
-            'Online card payment is not available yet. Please submit a quotation request and our sales team will contact you to arrange payment.',
-          code: 'ONLINE_PAYMENT_UNAVAILABLE',
-        },
-        { status: 503 }
-      );
-    }
-
-    const { customerDetails, cartItems } = await request.json();
-
-    if (!customerDetails || !cartItems || cartItems.length === 0) {
-      return NextResponse.json({ message: 'Invalid order request payload' }, { status: 400 });
-    }
-
-    let calculatedTotal = 0;
-    const orderItemsSnapshots: any[] = [];
-
-    // 1. Fetch latest prices from Supabase/Server source and recalculate total securely
-    for (const item of cartItems) {
-      let product = null;
-      try {
-        product = await dbService.getProductById(item.productId);
-      } catch (e) {
-        console.error('Failed to fetch product on server:', e);
-      }
-
-      // If Supabase is offline or product not found, fallback to default prices map
-      const unitPrice = product ? Number(product.price) : (DEFAULT_PRICES[item.productId] || 0);
-      
-      if (unitPrice === 0) {
-        return NextResponse.json({ message: `Product with ID ${item.productId} was not found.` }, { status: 404 });
-      }
-
-      calculatedTotal += unitPrice * item.quantity;
-
-      orderItemsSnapshots.push({
-        product_id: item.productId,
-        product_name: product?.name || `Product ${item.productId}`,
-        product_slug: product?.slug || 'unknown',
-        make: product?.make || 'GFO',
-        weight: product?.weight || '1.3 kgs',
-        quantity: item.quantity,
-        unit_price: unitPrice,
-        total_price: unitPrice * item.quantity,
-        currency: 'OMR',
-      });
-    }
-
-    // 2. Save order in Supabase as pending_payment
-    const pendingOrder = await dbService.saveOrder({
-      customer_name: customerDetails.fullName,
-      email: customerDetails.email,
-      phone: customerDetails.phone,
-      address: customerDetails.address,
-      company_name: customerDetails.companyName || undefined,
-      notes: customerDetails.notes || undefined,
-      total_amount: calculatedTotal,
+    const intention = await createIntention(paymob, {
+      amountMinor: order.total_minor,
       currency: 'OMR',
-      status: 'pending_payment',
-      payment_status: 'initiated',
-      payment_provider: 'paymob',
-      items: orderItemsSnapshots,
+      items: intentionItems,
+      customer: {
+        fullName: body.value.customer.fullName,
+        email: body.value.customer.email,
+        phone: body.value.customer.phone,
+        address: body.value.customer.address,
+      },
+      specialReference,
+      notificationUrl: `${callbackBase}/api/paymob/webhook`,
+      redirectionUrl: `${siteBase}/api/paymob/return?token=${order.public_token}`,
     });
 
-    const orderId = pendingOrder.id;
-
-    // --- PAYMOB REAL API CALLS ---
-    // (Omani minor unit conversion: Math.round(amount * 1000))
-    const minorUnitAmount = Math.round(calculatedTotal * 1000);
-
-    // Call Paymob Authentication
-    const authRes = await fetch(`${process.env.PAYMOB_BASE_URL}/auth/tokens`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: process.env.PAYMOB_API_KEY })
-    });
-    
-    if (!authRes.ok) {
-      throw new Error('Paymob Authentication failed');
+    await db
+      .from('payments')
+      .update({ intention_id: intention.id, provider_order_id: intention.intentionOrderId, status: 'pending' })
+      .eq('id', payment.id);
+    if (intention.intentionOrderId) {
+      await db.from('orders').update({ paymob_order_id: intention.intentionOrderId }).eq('id', order.order_id);
     }
-    const authData = await authRes.json();
-    const token = authData.token;
 
-    // Call Paymob Order Registration
-    const orderRes = await fetch(`${process.env.PAYMOB_BASE_URL}/ecommerce/orders`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        auth_token: token,
-        delivery_needed: 'false',
-        amount_cents: minorUnitAmount,
-        currency: 'OMR',
-        items: []
-      })
+    logServer('checkout_intention_created', { order: order.order_number, reference: specialReference });
+    return apiOk({
+      orderNumber: order.order_number,
+      paymentUrl: unifiedCheckoutUrl(paymob, intention.clientSecret),
     });
-
-    if (!orderRes.ok) {
-      throw new Error('Paymob Order registration failed');
-    }
-    const orderData = await orderRes.json();
-    const paymobOrderId = orderData.id;
-
-    // Save Paymob Order ID to order database
-    await dbService.updateOrderStatus(orderId, 'pending_payment', 'pending');
-    // Save to payments table
-    // In real project, we would run SQL update: `UPDATE orders SET paymob_order_id = paymobOrderId WHERE id = orderId`
-    // Our dbService.saveOrder can update it if we pass it, but for our database types we store it.
-    
-    // Call Paymob Payment Keys Generation
-    const keysRes = await fetch(`${process.env.PAYMOB_BASE_URL}/acceptance/payment_keys`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        auth_token: token,
-        amount_cents: minorUnitAmount,
-        expiration: 3600,
-        order_id: paymobOrderId,
-        billing_data: {
-          apartment: 'NA',
-          floor: 'NA',
-          street: customerDetails.address.slice(0, 45) || 'NA',
-          building: 'NA',
-          shipping_method: 'PKG',
-          postal_code: 'NA',
-          city: 'Muscat',
-          country: 'OM',
-          last_name: customerDetails.fullName.split(' ')[1] || 'LLC',
-          first_name: customerDetails.fullName.split(' ')[0] || 'SAMS',
-          email: customerDetails.email,
-          phone_number: customerDetails.phone
-        },
-        currency: 'OMR',
-        integration_id: Number(process.env.PAYMOB_INTEGRATION_ID),
-        lock_order_when_paid: 'true'
-      })
-    });
-
-    if (!keysRes.ok) {
-      throw new Error('Paymob Payment key generation failed');
-    }
-    const keysData = await keysRes.json();
-    const paymentToken = keysData.token;
-
-    // Construct checkout URL using configured Iframe ID
-    const paymobUrl = `https://oman.paymob.com/api/acceptance/iframes/${process.env.PAYMOB_IFRAME_ID}?payment_token=${paymentToken}`;
-
-    return NextResponse.json({ 
-      orderId, 
-      paymentUrl: paymobUrl, 
-      message: 'Paymob session initialized' 
-    });
-
-  } catch (error: any) {
-    console.error('Checkout API error:', error);
-    return NextResponse.json({ 
-      message: error.message || 'Failed to create order checkout.' 
-    }, { status: 500 });
+  } catch (err) {
+    const detail = err instanceof PaymobError ? { status: err.status, detail: err.detail } : { message: String(err) };
+    logServer('checkout_intention_failed', { order: order.order_number, ...detail });
+    await db.from('payments').update({ status: 'error', last_error: JSON.stringify(detail).slice(0, 1000) }).eq('id', payment.id);
+    await db.from('orders').update({ status: 'failed', payment_status: 'failed' }).eq('id', order.order_id);
+    return apiError(502, 'PAYMENT_GATEWAY_ERROR', 'The payment gateway did not respond. You have not been charged. Please try again.');
   }
 }

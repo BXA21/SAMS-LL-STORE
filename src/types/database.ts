@@ -53,6 +53,10 @@ export interface Inquiry {
 
 export interface Order {
   id: string;
+  order_number: string;
+  order_type: 'online' | 'quotation';
+  staff_notes?: string | null;
+  paid_at?: string | null;
   customer_name: string;
   email: string;
   phone: string;
@@ -94,7 +98,7 @@ export interface Payment {
   status: 'initiated' | 'pending' | 'successful' | 'failed' | 'cancelled' | 'refunded';
   payment_url?: string;
   iframe_url?: string;
-  raw_response?: any;
+  raw_response?: unknown;
   created_at: string;
   updated_at: string;
 }
@@ -140,11 +144,26 @@ export interface SiteSetting {
   updated_at: string;
 }
 
-export interface AdminProfile {
-  id: string;
+export type StaffRole = 'owner' | 'sales';
+
+export interface StaffProfile {
   user_id: string;
-  full_name?: string;
-  role: 'admin' | 'editor';
+  full_name: string;
+  role: StaffRole;
   is_active: boolean;
-  created_at: string;
+}
+
+export interface SalesReport {
+  revenue: number;
+  orders: number;
+  units: number;
+  cost: number;
+  costed_revenue: number;
+  uncosted_revenue: number;
+  online_revenue: number;
+  manual_revenue: number;
+  pending_payment: number;
+  failed_payment: number;
+  by_month: { month: string; revenue: number; orders: number }[];
+  by_product: { product_name: string; units: number; revenue: number; cost: number | null; has_cost: boolean }[];
 }

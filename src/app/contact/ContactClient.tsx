@@ -109,23 +109,20 @@ export default function ContactClient({
     setSubmitError(null);
     try {
       const selectedProd = products.find(p => p.id === values.productId);
-      
-      await dbService.saveInquiry({
-        full_name: values.fullName,
+
+      await dbService.submitInquiry({
+        fullName: values.fullName,
         email: values.email,
         phone: values.phone,
-        company_name: values.companyName || undefined,
-        product_id: values.productId === 'general' ? undefined : values.productId,
-        product_name: values.productId === 'general' ? 'General Enquiry' : selectedProd?.name,
+        companyName: values.companyName || undefined,
+        productSlug: values.productId === 'general' ? undefined : selectedProd?.slug,
         quantity: values.quantity,
         message: values.message,
-        status: 'new'
       });
-      
+
       setSubmitSuccess(true);
       reset();
     } catch (err) {
-      console.error(err);
       const errorMessage = err instanceof Error ? err.message : 'Something went wrong. Please try again.';
       setSubmitError(errorMessage);
     } finally {

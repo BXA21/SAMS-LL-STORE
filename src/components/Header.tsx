@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { Search, User, ShoppingBag, Menu, X } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
+import { useHydrated } from '@/lib/useHydrated';
 
 export default function Header() {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -13,10 +14,9 @@ export default function Header() {
   const pathname = usePathname();
   const { setIsOpen: openCart, getItemCount } = useCartStore();
 
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
 
   useEffect(() => {
-    setMounted(true);
     const handleScroll = () => {
       if (window.scrollY > 50) {
         setIsScrolled(true);

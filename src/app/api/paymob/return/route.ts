@@ -1,32 +1,32 @@
 import { NextResponse } from 'next/server';
-import { getSiteUrlFromRequest } from '@/lib/siteUrl';
+import { logServer } from '@/lib/apiHelpers';
+import { verifyRedirectHmac } from '@/lib/paymob';
+import { getPaymobConfig } from '@/lib/serverEnv';
+import { getSiteUrl } from '@/lib/siteUrl';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const TOKEN = /^[a-f0-9]{48}$/;
+
+/**
+ * Where Paymob sends the customer's browser after payment.
+ *
+ * Display only: this route never writes payment state. Orders become paid
+ * solely through the server-to-server webhook (/api/paymob/webhook). The
+ * result page reads the real status from the database and waits for it.
+ * The redirect signature is checked only so tampering shows up in the logs.
+ */
 export async function GET(request: Request) {
-  try {
-    const { searchParams } = new URL(request.url);
-    
-    // Extract Paymob params
-    const transactionId = searchParams.get('id');
-    const success = searchParams.get('success') === 'true';
-    const pending = searchParams.get('pending') === 'true';
-    const merchantOrderId = searchParams.get('merchant_order_id');
-    
-    const siteUrl = getSiteUrlFromRequest(request);
+  const params = new URL(request.url).searchParams;
+  const token = params.get('token') ?? '';
+  const resultUrl = new URL('/checkout/result', getSiteUrl());
+  if (TOKEN.test(token)) resultUrl.searchParams.set('token', token);
 
-    // Decipher result status
-    const isSuccessful = success && !pending;
-    
-    // Redirect customer to frontend checkout result page
-    const resultUrl = new URL(`${siteUrl}/checkout/result`);
-    resultUrl.searchParams.set('success', String(isSuccessful));
-    if (transactionId) resultUrl.searchParams.set('transactionId', transactionId);
-    if (merchantOrderId) resultUrl.searchParams.set('orderId', merchantOrderId);
-
-    return NextResponse.redirect(resultUrl.toString());
-
-  } catch (error) {
-    console.error('Paymob return processing failed:', error);
-    const siteUrl = getSiteUrlFromRequest(request);
-    return NextResponse.redirect(`${siteUrl}/checkout/result?success=false`);
+  const paymob = getPaymobConfig();
+  if (paymob && params.has('hmac') && !verifyRedirectHmac(paymob.hmacSecret, params)) {
+    logServer('paymob_return_bad_hmac', { transaction: params.get('id') ?? '' });
   }
+
+  return NextResponse.redirect(resultUrl, { status: 303 });
 }
