@@ -1,5 +1,6 @@
 import crypto from 'crypto';
-import { apiError, apiOk, logServer, readJson, withinRateLimit } from '@/lib/apiHelpers';
+import { apiError, apiOk, enforceRateLimit, logServer, readJson } from '@/lib/apiHelpers';
+import { ORDER_ACCESS_COOKIE, orderAccessCookieOptions } from '@/lib/orderAccess';
 import { createIntention, PaymobError, unifiedCheckoutUrl } from '@/lib/paymob';
 import { getPaymobConfig } from '@/lib/serverEnv';
 import { getSiteUrl } from '@/lib/siteUrl';
@@ -13,14 +14,21 @@ export const dynamic = 'force-dynamic';
 interface ItemSnapshot {
   product_name: string;
   quantity: number;
-  unit_price: number;
+  unit_price: number | string;
+}
+
+/** OMR (3 decimals) to integer baisa via the decimal string, never float multiplication. */
+function omrToBaisa(value: number | string): number {
+  const [whole, fraction = ''] = (typeof value === 'number' ? value.toFixed(3) : value).split('.');
+  return Number(whole) * 1000 + Number(fraction.padEnd(3, '0').slice(0, 3));
 }
 
 /**
  * Online card checkout.
- * Validate -> rate limit -> price and persist the order in Postgres -> create
- * a Paymob intention -> return the hosted Unified Checkout URL. The order is
- * marked paid later, only by an HMAC-verified Paymob callback.
+ * Validate -> rate limit (fail closed) -> price and persist the order in
+ * Postgres -> create a payment attempt -> create the Paymob intention ->
+ * durably bind the attempt to Paymob's (signed) order id -> only then return
+ * the hosted checkout URL. Payment state changes only via the signed webhook.
  */
 export async function POST(request: Request) {
   const db = getSupabaseAdmin();
@@ -36,18 +44,25 @@ export async function POST(request: Request) {
   const body = await readJson(request, checkoutSchema);
   if (!body.ok) return body.response;
 
-  if (!(await withinRateLimit(db, 'checkout', request, 8, 600))) {
-    return apiError(429, 'RATE_LIMITED', 'Too many checkout attempts. Please wait a few minutes and try again.');
-  }
+  const limit = await enforceRateLimit(db, 'checkout', request, 8, 600);
+  if (!limit.ok) return limit.response;
 
   const created = await createOrder(db, body.value, 'online');
   if (!created.ok) return created.response;
   const order = created.order;
 
+  const environment = paymob.secretKey.startsWith('omn_sk_live_') ? 'live' : 'test';
   const specialReference = `${order.order_number}-${crypto.randomBytes(3).toString('hex')}`;
   const { data: payment, error: paymentError } = await db
     .from('payments')
-    .insert({ order_id: order.order_id, special_reference: specialReference, amount_minor: order.total_minor, currency: 'OMR' })
+    .insert({
+      order_id: order.order_id,
+      special_reference: specialReference,
+      amount_minor: order.total_minor,
+      currency: 'OMR',
+      integration_ids: paymob.integrationIds,
+      environment,
+    })
     .select('id')
     .single();
   if (paymentError || !payment) {
@@ -55,13 +70,14 @@ export async function POST(request: Request) {
     return apiError(500, 'INTERNAL_ERROR', 'We could not start the payment. Please try again.');
   }
 
+  const failAttempt = async (reason: string) => {
+    await db.from('payments').update({ status: 'error', last_error: reason.slice(0, 300) }).eq('id', payment.id);
+    await db.from('orders').update({ status: 'failed', payment_status: 'failed' }).eq('id', order.order_id).eq('payment_status', 'initiated');
+  };
+
   const { data: orderRow } = await db.from('orders').select('items').eq('id', order.order_id).single();
   const snapshots = (orderRow?.items ?? []) as ItemSnapshot[];
-  const items = snapshots.map((line) => ({
-    name: line.product_name,
-    amount: Math.round(Number(line.unit_price) * 1000),
-    quantity: line.quantity,
-  }));
+  const items = snapshots.map((line) => ({ name: line.product_name, amount: omrToBaisa(line.unit_price), quantity: line.quantity }));
   const itemsTotal = items.reduce((sum, item) => sum + item.amount * item.quantity, 0);
   const intentionItems =
     itemsTotal === order.total_minor ? items : [{ name: `SAMS order ${order.order_number}`, amount: order.total_minor, quantity: 1 }];
@@ -69,8 +85,9 @@ export async function POST(request: Request) {
   const callbackBase = paymob.callbackBaseUrl ?? getSiteUrl();
   const siteBase = getSiteUrl();
 
+  let intention;
   try {
-    const intention = await createIntention(paymob, {
+    intention = await createIntention(paymob, {
       amountMinor: order.total_minor,
       currency: 'OMR',
       items: intentionItems,
@@ -82,27 +99,40 @@ export async function POST(request: Request) {
       },
       specialReference,
       notificationUrl: `${callbackBase}/api/paymob/webhook`,
-      redirectionUrl: `${siteBase}/api/paymob/return?token=${order.public_token}`,
-    });
-
-    await db
-      .from('payments')
-      .update({ intention_id: intention.id, provider_order_id: intention.intentionOrderId, status: 'pending' })
-      .eq('id', payment.id);
-    if (intention.intentionOrderId) {
-      await db.from('orders').update({ paymob_order_id: intention.intentionOrderId }).eq('id', order.order_id);
-    }
-
-    logServer('checkout_intention_created', { order: order.order_number, reference: specialReference });
-    return apiOk({
-      orderNumber: order.order_number,
-      paymentUrl: unifiedCheckoutUrl(paymob, intention.clientSecret),
+      redirectionUrl: `${siteBase}/api/paymob/return`,
     });
   } catch (err) {
-    const detail = err instanceof PaymobError ? { status: err.status, detail: err.detail } : { message: String(err) };
-    logServer('checkout_intention_failed', { order: order.order_number, ...detail });
-    await db.from('payments').update({ status: 'error', last_error: JSON.stringify(detail).slice(0, 1000) }).eq('id', payment.id);
-    await db.from('orders').update({ status: 'failed', payment_status: 'failed' }).eq('id', order.order_id);
+    // Log only status/code; Paymob error bodies can echo customer billing data.
+    const status = err instanceof PaymobError ? err.status : undefined;
+    logServer('checkout_intention_failed', { order: order.order_number, status });
+    await failAttempt(`Paymob intention failed${status ? ` (HTTP ${status})` : ''}`);
     return apiError(502, 'PAYMENT_GATEWAY_ERROR', 'The payment gateway did not respond. You have not been charged. Please try again.');
   }
+
+  if (!intention.intentionOrderId) {
+    logServer('checkout_intention_unbound', { order: order.order_number });
+    await failAttempt('Paymob returned no order id to bind');
+    return apiError(502, 'PAYMENT_GATEWAY_ERROR', 'The payment gateway did not respond correctly. You have not been charged. Please try again.');
+  }
+
+  // Bind this attempt to Paymob's order id exactly once, before the customer can pay.
+  const { data: bound, error: bindError } = await db
+    .from('payments')
+    .update({ intention_id: intention.id, provider_order_id: intention.intentionOrderId, status: 'pending' })
+    .eq('id', payment.id)
+    .is('provider_order_id', null)
+    .select('id');
+  if (bindError || !bound || bound.length !== 1) {
+    logServer('checkout_binding_failed', { order: order.order_number, message: bindError?.message?.slice(0, 200) });
+    await failAttempt('Could not bind the payment attempt');
+    return apiError(500, 'INTERNAL_ERROR', 'We could not start the payment. You have not been charged. Please try again.');
+  }
+
+  logServer('checkout_intention_created', { order: order.order_number, environment });
+  const response = apiOk({
+    orderNumber: order.order_number,
+    paymentUrl: unifiedCheckoutUrl(paymob, intention.clientSecret),
+  });
+  response.cookies.set(ORDER_ACCESS_COOKIE, order.public_token, orderAccessCookieOptions());
+  return response;
 }

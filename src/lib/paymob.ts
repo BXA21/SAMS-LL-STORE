@@ -33,9 +33,14 @@ export interface IntentionResponse {
 }
 
 export class PaymobError extends Error {
-  constructor(message: string, readonly status?: number, readonly detail?: unknown) {
+  readonly status?: number;
+  readonly detail?: unknown;
+
+  constructor(message: string, status?: number, detail?: unknown) {
     super(message);
     this.name = 'PaymobError';
+    this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -194,34 +199,55 @@ export function verifyRedirectHmac(secret: string, params: URLSearchParams): boo
 
 export interface NormalizedTransaction {
   transactionId: string;
+  /** Signed (HMAC field order.id): the only value used to find the payment. */
   providerOrderId: string | null;
-  specialReference: string | null;
+  /** Unsigned merchant_order_id: must agree with the binding, never selects it. */
+  merchantReference: string | null;
+  integrationId: number | null;
   amountMinor: number | null;
   currency: string | null;
   success: boolean;
   pending: boolean;
+  isRefunded: boolean;
+  isVoided: boolean;
+  isAuth: boolean;
+  isCapture: boolean;
 }
 
 function asBool(value: unknown): boolean {
   return value === true || value === 'true';
 }
 
-function asAmount(value: unknown): number | null {
-  const n = Number(value);
-  return Number.isFinite(n) ? Math.round(n) : null;
+/** Exact integer minor units only; floats, exponents and garbage become null. */
+function asMinorUnits(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  if (typeof value === 'string' && /^[0-9]{1,15}$/.test(value)) return Number(value);
+  return null;
+}
+
+function asId(value: unknown): string | null {
+  const text = stringify(value);
+  return /^[0-9]{1,32}$/.test(text) ? text : null;
 }
 
 export function normalizeCallback(obj: Record<string, unknown>): NormalizedTransaction | null {
-  const transactionId = stringify(obj.id);
+  const transactionId = asId(obj.id);
   if (!transactionId) return null;
   const order = (obj.order && typeof obj.order === 'object' ? obj.order : {}) as Record<string, unknown>;
+  const integration = asId(obj.integration_id);
+  const reference = stringify(order.merchant_order_id);
   return {
     transactionId,
-    providerOrderId: stringify(order.id) || null,
-    specialReference: stringify(order.merchant_order_id) || null,
-    amountMinor: asAmount(obj.amount_cents),
-    currency: stringify(obj.currency) || null,
+    providerOrderId: asId(order.id),
+    merchantReference: reference && reference.length <= 128 ? reference : null,
+    integrationId: integration ? Number(integration) : null,
+    amountMinor: asMinorUnits(obj.amount_cents),
+    currency: stringify(obj.currency).slice(0, 8) || null,
     success: asBool(obj.success),
     pending: asBool(obj.pending),
+    isRefunded: asBool(obj.is_refunded),
+    isVoided: asBool(obj.is_voided),
+    isAuth: asBool(obj.is_auth),
+    isCapture: asBool(obj.is_capture),
   };
 }

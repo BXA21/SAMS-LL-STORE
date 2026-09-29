@@ -50,27 +50,3 @@ export function getSiteUrl(): string {
 
   return process.env.NODE_ENV === 'development' ? LOCAL_SITE_URL : PRODUCTION_SITE_URL;
 }
-
-/**
- * Origin for a specific inbound request.
- *
- * Deriving the origin from the request the visitor actually made is immune to
- * misconfigured environment variables, so redirects always land back on the
- * host the customer is browsing. Falls back to {@link getSiteUrl}.
- */
-export function getSiteUrlFromRequest(request: Request): string {
-  const headers = request.headers;
-  const forwardedHost = headers.get('x-forwarded-host') ?? headers.get('host');
-
-  if (forwardedHost) {
-    const proto =
-      headers.get('x-forwarded-proto') ??
-      (forwardedHost.startsWith('localhost') || forwardedHost.startsWith('127.0.0.1')
-        ? 'http'
-        : 'https');
-    const origin = `${proto}://${forwardedHost}`;
-    if (isUsable(origin)) return normalize(origin);
-  }
-
-  return getSiteUrl();
-}

@@ -1,29 +1,36 @@
-import { apiError, apiOk, logServer, withinRateLimit } from '@/lib/apiHelpers';
+import { apiError, apiOk, enforceRateLimit, logServer } from '@/lib/apiHelpers';
+import { readOrderAccessToken } from '@/lib/orderAccess';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const TOKEN = /^[a-f0-9]{48}$/;
-
-/** Payment status for the checkout result page, keyed by the order's unguessable public token. */
-export async function GET(request: Request) {
+/**
+ * Payment status of the buyer's own most recent card order, identified by the
+ * HttpOnly order-access cookie set at checkout (never a URL parameter).
+ * Returns status and total only.
+ */
+export async function POST(request: Request) {
   const db = getSupabaseAdmin();
   if (!db) return apiError(503, 'SERVICE_UNAVAILABLE', 'Order status is temporarily unavailable.');
 
-  const token = new URL(request.url).searchParams.get('token') ?? '';
-  if (!TOKEN.test(token)) return apiError(400, 'INVALID_REQUEST', 'Invalid order reference.');
+  const token = readOrderAccessToken(request);
+  if (!token) return apiError(404, 'NOT_FOUND', 'No recent order was found in this browser.');
 
-  if (!(await withinRateLimit(db, 'status', request, 60, 600))) {
-    return apiError(429, 'RATE_LIMITED', 'Too many requests. Please wait a moment.');
-  }
+  const limit = await enforceRateLimit(db, 'status', request, 60, 600);
+  if (!limit.ok) return limit.response;
+
+  // A buyer waiting on the result page is exactly when a stranded payment
+  // callback matters: finish any stored-but-unprocessed callbacks first.
+  const { error: sweepError } = await db.rpc('process_pending_paymob_callbacks', { p_limit: 5 });
+  if (sweepError) logServer('order_status_sweep_failed', { message: sweepError.message.slice(0, 200) });
 
   const { data, error } = await db.rpc('get_order_status', { p_public_token: token });
   if (error) {
-    logServer('order_status_failed', { message: error.message });
+    logServer('order_status_failed', { message: error.message.slice(0, 200) });
     return apiError(500, 'INTERNAL_ERROR', 'We could not load the order status.');
   }
   const order = Array.isArray(data) ? data[0] : null;
-  if (!order) return apiError(404, 'NOT_FOUND', 'Order not found.');
+  if (!order) return apiError(404, 'NOT_FOUND', 'No recent order was found in this browser.');
   return apiOk(order);
 }

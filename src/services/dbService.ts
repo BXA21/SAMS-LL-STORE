@@ -10,6 +10,8 @@ import {
   FAQ, 
   SiteSetting,
   StaffProfile,
+  OrderStatusHistoryEntry,
+  PaymentAlert,
   SalesReport
 } from '@/types/database';
 
@@ -672,11 +674,64 @@ export const dbService = {
     return (data ?? []).map((o) => ({ ...o, total_amount: Number(o.total_amount) }));
   },
 
-  async updateOrderStatus(id: string, status: Order['status'], payment_status?: Order['payment_status']): Promise<{ ok: boolean; message?: string }> {
-    const payload: Partial<Pick<Order, 'status' | 'payment_status'>> = { status };
-    if (payment_status) payload.payment_status = payment_status;
-    const { error } = await requireDb().from('orders').update(payload).eq('id', id);
+  /**
+   * Moves an order to a new fulfilment status. The database enforces the
+   * transition table, payment prerequisites and stale-write protection, and
+   * writes the audit history; the dashboard only offers valid moves.
+   */
+  async setOrderStatus(id: string, expected: Order['status'], next: Order['status'], reason?: string): Promise<{ ok: boolean; message?: string }> {
+    const { error } = await requireDb().rpc('staff_set_order_status', {
+      p_order_id: id,
+      p_expected_status: expected,
+      p_new_status: next,
+      p_reason: reason ?? null,
+    });
     return error ? { ok: false, message: error.message } : { ok: true };
+  },
+
+  /** Owner only: records (or corrects) an offline payment on a quotation order. */
+  async setOfflinePayment(
+    id: string,
+    expected: Order['payment_status'],
+    next: Order['payment_status'],
+    reason: string
+  ): Promise<{ ok: boolean; message?: string }> {
+    const { error } = await requireDb().rpc('owner_set_offline_payment', {
+      p_order_id: id,
+      p_expected_payment_status: expected,
+      p_new_payment_status: next,
+      p_reason: reason,
+    });
+    return error ? { ok: false, message: error.message } : { ok: true };
+  },
+
+  /** Open payment alerts (money that needs a human decision). Visible to all staff. */
+  async getOpenPaymentAlerts(): Promise<PaymentAlert[]> {
+    const { data, error } = await requireDb()
+      .from('payment_alerts')
+      .select('id, order_id, kind, message, created_at, resolved_at, resolution')
+      .is('resolved_at', null)
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as PaymentAlert[];
+  },
+
+  /** Owner only: closes an alert with a written resolution. */
+  async resolvePaymentAlert(alertId: number, resolution: string): Promise<{ ok: boolean; message?: string }> {
+    const { error } = await requireDb().rpc('owner_resolve_payment_alert', { p_alert_id: alertId, p_resolution: resolution });
+    return error ? { ok: false, message: error.message } : { ok: true };
+  },
+
+  async getOrderHistory(orderId: string): Promise<OrderStatusHistoryEntry[]> {
+    const { data, error } = await requireDb()
+      .from('order_status_history')
+      .select('id, actor_role, from_status, to_status, from_payment_status, to_payment_status, reason, created_at')
+      .eq('order_id', orderId)
+      .order('created_at', { ascending: true })
+      .limit(100);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as OrderStatusHistoryEntry[];
   },
 
   async updateOrderNotes(id: string, staff_notes: string): Promise<boolean> {

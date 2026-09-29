@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import { CheckCircle2, XCircle, ShoppingBag, ArrowRight, PhoneCall, Loader2, Clock } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
 
@@ -26,17 +25,11 @@ function viewFor(order: OrderStatus): View {
 }
 
 function ResultContent() {
-  const searchParams = useSearchParams();
-  const token = searchParams.get('token') ?? '';
-  const tokenValid = /^[a-f0-9]{48}$/.test(token);
   const clearCart = useCartStore((s) => s.clearCart);
   const [order, setOrder] = useState<OrderStatus | null>(null);
-  const [loadedView, setView] = useState<View>('loading');
-  const view: View = tokenValid ? loadedView : 'unknown';
+  const [view, setView] = useState<View>('loading');
 
   useEffect(() => {
-    if (!tokenValid) return;
-
     let cancelled = false;
     let polls = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -44,7 +37,7 @@ function ResultContent() {
     async function load() {
       polls += 1;
       try {
-        const res = await fetch(`/api/orders/status?token=${token}`, { cache: 'no-store' });
+        const res = await fetch('/api/orders/status', { method: 'POST', cache: 'no-store', credentials: 'same-origin' });
         const json = await res.json().catch(() => ({}));
         if (cancelled) return;
         if (!res.ok || !json.data) {
@@ -68,7 +61,7 @@ function ResultContent() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [token, tokenValid, clearCart]);
+  }, [clearCart]);
 
   const whatsappText = encodeURIComponent(
     order ? `Hello SAMS LLC, I have a question about my order ${order.order_number}.` : 'Hello SAMS LLC, I have a question about my online order.'

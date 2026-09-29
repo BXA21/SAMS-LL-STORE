@@ -1,4 +1,4 @@
-import { apiError, apiOk, readJson, withinRateLimit } from '@/lib/apiHelpers';
+import { apiError, apiOk, enforceRateLimit, readJson } from '@/lib/apiHelpers';
 import { createOrder } from '@/lib/orderFactory';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { checkoutSchema } from '@/lib/validation';
@@ -16,9 +16,8 @@ export async function POST(request: Request) {
   const body = await readJson(request, checkoutSchema);
   if (!body.ok) return body.response;
 
-  if (!(await withinRateLimit(db, 'quote', request, 6, 600))) {
-    return apiError(429, 'RATE_LIMITED', 'Too many requests. Please wait a few minutes and try again.');
-  }
+  const limit = await enforceRateLimit(db, 'quote', request, 6, 600);
+  if (!limit.ok) return limit.response;
 
   const created = await createOrder(db, body.value, 'quotation');
   if (!created.ok) return created.response;

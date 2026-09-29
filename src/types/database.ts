@@ -153,8 +153,35 @@ export interface StaffProfile {
   is_active: boolean;
 }
 
+export interface PaymentAlert {
+  id: number;
+  order_id: string | null;
+  kind: string;
+  message: string;
+  created_at: string;
+  resolved_at: string | null;
+  resolution: string | null;
+}
+
+export interface OrderStatusHistoryEntry {
+  id: number;
+  actor_role: string;
+  from_status: string | null;
+  to_status: string | null;
+  from_payment_status: string | null;
+  to_payment_status: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
 export interface SalesReport {
+  /** Money captured in the period, including orders later cancelled or refunded. */
+  gross: number;
+  refunds: number;
+  /** Net collected: gross minus refunds. */
   revenue: number;
+  cancelled_paid: number;
+  cancelled_paid_amount: number;
   orders: number;
   units: number;
   cost: number;

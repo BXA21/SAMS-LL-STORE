@@ -1,4 +1,4 @@
-import { apiError, apiOk, logServer, readJson, withinRateLimit } from '@/lib/apiHelpers';
+import { apiError, apiOk, enforceRateLimit, logServer, readJson } from '@/lib/apiHelpers';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { inquirySchema } from '@/lib/validation';
 
@@ -19,9 +19,8 @@ export async function POST(request: Request) {
   // Bots fill the hidden honeypot field; accept silently so they learn nothing.
   if (input.website) return apiOk({ received: true }, 201);
 
-  if (!(await withinRateLimit(db, 'inquiry', request, 5, 600))) {
-    return apiError(429, 'RATE_LIMITED', 'Too many messages. Please wait a few minutes and try again.');
-  }
+  const limit = await enforceRateLimit(db, 'inquiry', request, 5, 600);
+  if (!limit.ok) return limit.response;
 
   let productId: string | null = null;
   let productName: string | null = null;

@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { dbService } from '@/services/dbService';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { Product, Inquiry, Order, Certificate, FAQ, SalesReport } from '@/types/database';
+import { Product, Inquiry, Order, Certificate, FAQ, SalesReport, OrderStatusHistoryEntry, PaymentAlert } from '@/types/database';
 
 type ReportPeriod = '30d' | '90d' | '365d' | 'all';
 
@@ -58,6 +58,46 @@ function whatsappNumber(phone: string): string {
   if (digits.startsWith('00')) return digits.slice(2);
   if (digits.startsWith('968')) return digits;
   return digits.length === 8 ? `968${digits}` : digits;
+}
+
+const STATUS_LABELS: Record<Order['status'], string> = {
+  pending_payment: 'Awaiting payment',
+  manual_inquiry: 'New quotation',
+  paid: 'Paid',
+  failed: 'Payment failed',
+  placement: 'Placement',
+  processing: 'Processing',
+  shipping: 'Shipping',
+  delivered: 'Delivered',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+  refunded: 'Refunded',
+  pending: 'Pending',
+};
+
+// Mirrors guard_order_staff_update in the database, which is what actually enforces it.
+const STATUS_TRANSITIONS: Partial<Record<Order['status'], Order['status'][]>> = {
+  pending_payment: ['cancelled'],
+  failed: ['cancelled'],
+  paid: ['processing', 'cancelled'],
+  manual_inquiry: ['placement', 'cancelled'],
+  placement: ['processing', 'cancelled'],
+  processing: ['shipping', 'cancelled'],
+  shipping: ['delivered'],
+  delivered: ['completed'],
+  // Owner-only reinstatement; filtered per order type in reinstateTargets().
+  cancelled: ['paid', 'placement'],
+};
+
+function reinstateAllowed(order: Order, next: Order['status']): boolean {
+  if (next === 'paid') return order.payment_provider === 'paymob' && order.payment_status === 'successful';
+  if (next === 'placement') return order.order_type === 'quotation';
+  return false;
+}
+const FULFILMENT_STATUSES: Order['status'][] = ['processing', 'shipping', 'delivered', 'completed'];
+
+function isPaymentConfirmed(order: Order): boolean {
+  return order.payment_status === 'successful' || order.payment_status === 'verified';
 }
 
 export default function AdminPage() {
@@ -99,6 +139,8 @@ export default function AdminPage() {
   // Order detail drawer
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [orderNotesDraft, setOrderNotesDraft] = useState('');
+  const [orderHistory, setOrderHistory] = useState<OrderStatusHistoryEntry[]>([]);
+  const [paymentAlerts, setPaymentAlerts] = useState<PaymentAlert[]>([]);
 
   // Product Form Modal State
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
@@ -134,6 +176,7 @@ export default function AdminPage() {
       setCertificates(certs);
       setFaqs(faqsData);
       setSiteSettings(settingsData);
+      setPaymentAlerts(await dbService.getOpenPaymentAlerts());
       if (role === 'admin') setProductCosts(await dbService.getProductCosts());
     } catch (err) {
       setDataError(err instanceof Error ? err.message : 'Failed to load dashboard data.');
@@ -282,15 +325,69 @@ export default function AdminPage() {
     }
   };
 
-  // Orders Updates (Status & Payment Status)
-  const handleUpdateOrderStatus = async (id: string, status: Order['status'], payStatus?: Order['payment_status']) => {
+  const applyOrderPatch = (id: string, patch: Partial<Order>) => {
+    setOrders(prev => prev.map(o => o.id === id ? { ...o, ...patch } : o));
+    setSelectedOrder(prev => (prev && prev.id === id ? { ...prev, ...patch } : prev));
+  };
+
+  const loadOrderHistory = async (orderId: string) => {
+    try {
+      setOrderHistory(await dbService.getOrderHistory(orderId));
+    } catch {
+      setOrderHistory([]);
+    }
+  };
+
+  // Fulfilment status: the database enforces the transition table and records who changed what.
+  const handleChangeOrderStatus = async (ord: Order, next: Order['status']) => {
+    if (next === ord.status) return;
     setActionError(null);
-    const result = await dbService.updateOrderStatus(id, status, payStatus);
+    let reason: string | undefined;
+    if (next === 'cancelled' || ord.status === 'cancelled') {
+      const answer = window.prompt(
+        next === 'cancelled'
+          ? `Why is ${ord.order_number} being cancelled? (required)`
+          : `Why is ${ord.order_number} being reinstated? (required)`
+      );
+      if (!answer || !answer.trim()) return;
+      reason = answer.trim();
+    }
+    const result = await dbService.setOrderStatus(ord.id, ord.status, next, reason);
     if (result.ok) {
-      setOrders(prev => prev.map(o => o.id === id ? { ...o, status, payment_status: payStatus ?? o.payment_status } : o));
-      setSelectedOrder(prev => (prev && prev.id === id ? { ...prev, status, payment_status: payStatus ?? prev.payment_status } : prev));
+      applyOrderPatch(ord.id, { status: next });
+      if (selectedOrder?.id === ord.id) loadOrderHistory(ord.id);
     } else {
       setActionError(result.message ?? 'Could not update the order.');
+      fetchAdminData(userRole);
+    }
+  };
+
+  // Payment alerts: visible to all staff, resolved only by the owner with a written note.
+  const handleResolveAlert = async (alert: PaymentAlert) => {
+    const resolution = window.prompt('How was this resolved? (e.g. refunded in Paymob, ref ...) - required');
+    if (!resolution || !resolution.trim()) return;
+    const result = await dbService.resolvePaymentAlert(alert.id, resolution.trim());
+    if (result.ok) setPaymentAlerts(prev => prev.filter(a => a.id !== alert.id));
+    else setActionError(result.message ?? 'Could not resolve the alert.');
+  };
+
+  // Offline (quotation) payment: owner only, reason required.
+  const handleChangeOfflinePayment = async (ord: Order, next: Order['payment_status']) => {
+    if (next === ord.payment_status) return;
+    setActionError(null);
+    const answer = window.prompt(
+      next === 'verified'
+        ? `How was ${ord.order_number} paid? (e.g. bank transfer reference) - required`
+        : `Why is the payment on ${ord.order_number} being reversed? (required)`
+    );
+    if (!answer || !answer.trim()) return;
+    const result = await dbService.setOfflinePayment(ord.id, ord.payment_status, next, answer.trim());
+    if (result.ok) {
+      applyOrderPatch(ord.id, { payment_status: next });
+      if (selectedOrder?.id === ord.id) loadOrderHistory(ord.id);
+    } else {
+      setActionError(result.message ?? 'Could not record the payment.');
+      fetchAdminData(userRole);
     }
   };
 
@@ -930,6 +1027,36 @@ export default function AdminPage() {
                 </div>
               </div>
 
+              {paymentAlerts.length > 0 && (
+                <section aria-label="Payment alerts" className="bg-red-50 border border-red-200 rounded-2xl p-5 space-y-3">
+                  <h3 className="font-display text-base uppercase font-bold text-fire flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5" />
+                    Payment alerts ({paymentAlerts.length})
+                  </h3>
+                  <ul className="space-y-2">
+                    {paymentAlerts.map((alert) => (
+                      <li key={alert.id} className="bg-white border border-red-100 rounded-xl p-3 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-0.5">
+                          <span className="font-bold uppercase tracking-wider text-[10px] text-fire">{alert.kind.replace(/_/g, ' ')}</span>
+                          <p className="text-gray-700">{alert.message}</p>
+                          <span className="text-[10px] text-gray-400 font-mono">{new Date(alert.created_at).toLocaleString('en-GB', { timeZone: 'Asia/Muscat' })}</span>
+                        </div>
+                        {userRole === 'admin' ? (
+                          <button
+                            onClick={() => handleResolveAlert(alert)}
+                            className="shrink-0 bg-navy hover:bg-fire text-white text-[10px] uppercase tracking-wider font-bold py-2 px-3 rounded-lg"
+                          >
+                            Mark resolved
+                          </button>
+                        ) : (
+                          <span className="shrink-0 text-[10px] text-gray-500 font-semibold">Owner will resolve</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
               {/* SUBTAB 1: CHECKOUT ORDERS */}
               {ordersTab === 'checkout' && (
                 <div className="bg-white border border-gray-150 rounded-2xl shadow-sm overflow-hidden">
@@ -951,7 +1078,7 @@ export default function AdminPage() {
                           <tr
                             key={ord.id}
                             className="hover:bg-gray-50/50 transition-colors cursor-pointer"
-                            onClick={() => { setSelectedOrder(ord); setOrderNotesDraft(ord.staff_notes ?? ''); }}
+                            onClick={() => { setSelectedOrder(ord); setOrderNotesDraft(ord.staff_notes ?? ''); setOrderHistory([]); loadOrderHistory(ord.id); }}
                           >
                             <td className="p-4 pl-6">
                               <span className="font-mono font-bold text-navy block">{ord.order_number}</span>
@@ -975,7 +1102,7 @@ export default function AdminPage() {
                               <select
                                 value={ord.status}
                                 aria-label={`Order status for ${ord.order_number}`}
-                                onChange={(e) => handleUpdateOrderStatus(ord.id, e.target.value as Order['status'])}
+                                onChange={(e) => handleChangeOrderStatus(ord, e.target.value as Order['status'])}
                                 className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-lg border focus:outline-none ${
                                   ord.status === 'delivered' || ord.status === 'completed'
                                     ? 'bg-green-50 text-green-700 border-green-200'
@@ -988,17 +1115,18 @@ export default function AdminPage() {
                                           : 'bg-red-50 text-fire border-red-200'
                                 }`}
                               >
-                                <option value="pending_payment" disabled={ord.status !== 'pending_payment'}>Awaiting payment</option>
-                                <option value="manual_inquiry">New quotation</option>
-                                <option value="paid" disabled={ord.status !== 'paid'}>Paid</option>
-                                <option value="failed" disabled={ord.status !== 'failed'}>Payment failed</option>
-                                <option value="placement">Placement</option>
-                                <option value="processing">Processing</option>
-                                <option value="shipping">Shipping</option>
-                                <option value="delivered">Delivered</option>
-                                <option value="completed">Completed</option>
-                                <option value="cancelled">Cancelled</option>
-                                <option value="refunded">Refunded</option>
+                                <option value={ord.status}>{STATUS_LABELS[ord.status] ?? ord.status}</option>
+                                {(STATUS_TRANSITIONS[ord.status] ?? [])
+                                  .filter((next) => ord.status !== 'cancelled' || (userRole === 'admin' && reinstateAllowed(ord, next)))
+                                  .map((next) => {
+                                  const needsPayment = FULFILMENT_STATUSES.includes(next) && !isPaymentConfirmed(ord);
+                                  const ownerOnly = next === 'cancelled' && isPaymentConfirmed(ord) && userRole !== 'admin';
+                                  return (
+                                    <option key={next} value={next} disabled={needsPayment || ownerOnly}>
+                                      {STATUS_LABELS[next]}{needsPayment ? ' (awaiting payment)' : ownerOnly ? ' (owner only)' : ''}
+                                    </option>
+                                  );
+                                })}
                               </select>
                             </td>
                             <td className="p-4" onClick={(e) => e.stopPropagation()}>
@@ -1017,20 +1145,30 @@ export default function AdminPage() {
                                   {ord.payment_status === 'successful' ? 'Paid (Paymob)' : ord.payment_status}
                                 </span>
                               ) : (
-                                <select
-                                  value={ord.payment_status}
-                                  aria-label={`Payment status for ${ord.order_number}`}
-                                  onChange={(e) => handleUpdateOrderStatus(ord.id, ord.status, e.target.value as Order['payment_status'])}
-                                  className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-lg border focus:outline-none ${
-                                    ord.payment_status === 'verified'
-                                      ? 'bg-green-50 text-green-700 border-green-200'
-                                      : 'bg-yellow-50 text-yellow-700 border-yellow-200'
-                                  }`}
-                                >
-                                  <option value="unpaid">Unpaid</option>
-                                  <option value="verified">Paid (verified)</option>
-                                  <option value="refunded">Refunded</option>
-                                </select>
+                                userRole === 'admin' && (ord.payment_status === 'unpaid' || ord.payment_status === 'verified') ? (
+                                  <select
+                                    value={ord.payment_status}
+                                    aria-label={`Offline payment for ${ord.order_number}`}
+                                    onChange={(e) => handleChangeOfflinePayment(ord, e.target.value as Order['payment_status'])}
+                                    className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-lg border focus:outline-none ${
+                                      ord.payment_status === 'verified'
+                                        ? 'bg-green-50 text-green-700 border-green-200'
+                                        : 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                                    }`}
+                                  >
+                                    <option value="unpaid">Unpaid</option>
+                                    <option value="verified">Paid (verified)</option>
+                                  </select>
+                                ) : (
+                                  <span
+                                    title="Only the owner can record an offline payment"
+                                    className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-lg border ${
+                                      ord.payment_status === 'verified' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                                    }`}
+                                  >
+                                    {ord.payment_status === 'verified' ? 'Paid (verified)' : ord.payment_status}
+                                  </span>
+                                )
                               )}
                             </td>
                           </tr>
@@ -1335,8 +1473,11 @@ export default function AdminPage() {
                   <div className={`space-y-8 ${reportLoading ? 'opacity-60' : ''}`}>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                       <div className="bg-white p-6 rounded-2xl border border-gray-150 shadow-sm space-y-2">
-                        <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold block">Revenue</span>
+                        <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold block">Net Collected</span>
                         <span className="text-3xl font-extrabold text-navy font-display block">{revenue.toFixed(3)} <span className="text-xs font-semibold">OMR</span></span>
+                        <span className="text-[10px] text-gray-400 block">
+                          Gross {Number(report.gross).toFixed(3)} − Refunds {Number(report.refunds).toFixed(3)}
+                        </span>
                         <span className="text-[10px] text-gray-400 block">Card {Number(report.online_revenue).toFixed(3)} · Quotations {Number(report.manual_revenue).toFixed(3)}</span>
                       </div>
                       <div className="bg-white p-6 rounded-2xl border border-gray-150 shadow-sm space-y-2">
@@ -1359,6 +1500,13 @@ export default function AdminPage() {
                         <span className="text-[10px] text-gray-400 block">{report.pending_payment} awaiting payment · {report.failed_payment} failed</span>
                       </div>
                     </div>
+
+                    {report.cancelled_paid > 0 && (
+                      <div role="alert" className="bg-red-50 border border-red-200 text-fire p-4 rounded-xl text-xs flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        {report.cancelled_paid} cancelled order(s) still hold {Number(report.cancelled_paid_amount).toFixed(3)} OMR of collected payment. Refund or reinstate them; the money stays in these totals until a refund is confirmed.
+                      </div>
+                    )}
 
                     {uncosted > 0 && (
                       <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded-xl text-xs flex items-center gap-2">
@@ -1778,6 +1926,27 @@ export default function AdminPage() {
               </p>
               {selectedOrder.paymob_transaction_id && <p className="font-mono text-gray-500">Paymob transaction: {selectedOrder.paymob_transaction_id}</p>}
               {selectedOrder.paid_at && <p className="text-gray-500">Paid at {new Date(selectedOrder.paid_at).toLocaleString('en-GB', { timeZone: 'Asia/Muscat' })}</p>}
+            </section>
+
+            <section className="space-y-2">
+              <h4 className="text-[10px] uppercase font-bold tracking-widest text-gray-400">Status history</h4>
+              {orderHistory.length === 0 ? (
+                <p className="text-gray-400 italic">No history recorded yet.</p>
+              ) : (
+                <ol className="space-y-1.5">
+                  {orderHistory.map((h) => (
+                    <li key={h.id} className="border-l-2 border-gray-200 pl-3">
+                      <span className="font-mono text-gray-400">{new Date(h.created_at).toLocaleString('en-GB', { timeZone: 'Asia/Muscat' })}</span>{' '}
+                      <strong className="text-navy uppercase">{h.actor_role}</strong>{' '}
+                      {h.from_status !== h.to_status && <span>{h.from_status ?? 'new'} → {h.to_status}</span>}
+                      {h.from_payment_status !== h.to_payment_status && (
+                        <span> · payment {h.from_payment_status ?? 'new'} → {h.to_payment_status}</span>
+                      )}
+                      {h.reason && <span className="block text-gray-500 italic">&ldquo;{h.reason}&rdquo;</span>}
+                    </li>
+                  ))}
+                </ol>
+              )}
             </section>
 
             <section className="space-y-2">

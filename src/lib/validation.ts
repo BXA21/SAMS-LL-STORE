@@ -62,10 +62,5 @@ export const inquirySchema = z.object({
   website: z.string().max(0).optional(),
 });
 
-export const trackSchema = z.object({
-  orderNumber: z.string().trim().regex(/^SAMS-\d{4,10}$/i, 'Order numbers look like SAMS-10001'),
-  contact: z.string().trim().min(5).max(254),
-});
-
 export type CheckoutInput = z.infer<typeof checkoutSchema>;
 export type InquiryInput = z.infer<typeof inquirySchema>;
