@@ -78,3 +78,14 @@ test('Paymob keys must match the deployment environment', async () => {
   assert.match(paymobModeProblem('omn_sk_live_a', 'omn_pk_test_b', 'production') ?? '', /different modes/);
   assert.equal(paymobModeProblem('sk_unrecognised', 'pk_unrecognised', 'production'), null);
 });
+
+test('deployment environment is read from Netlify and Vercel variables', async () => {
+  const { deploymentEnvironment } = await import('../../src/lib/serverEnv.ts');
+  const env = (e: Record<string, string>) => e as unknown as NodeJS.ProcessEnv;
+  assert.equal(deploymentEnvironment(env({ CONTEXT: 'production' })), 'production');
+  assert.equal(deploymentEnvironment(env({ CONTEXT: 'deploy-preview' })), 'preview');
+  assert.equal(deploymentEnvironment(env({ CONTEXT: 'branch-deploy' })), 'preview');
+  assert.equal(deploymentEnvironment(env({ VERCEL_ENV: 'preview' })), 'preview');
+  assert.equal(deploymentEnvironment(env({ CONTEXT: 'production', SAMS_DEPLOY_ENV: 'preview' })), 'preview');
+  assert.equal(deploymentEnvironment(env({})), undefined);
+});

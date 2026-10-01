@@ -1,0 +1,13 @@
+# Netlify builds the Next.js app with its official Next.js runtime (detected
+# automatically). Production = branch master; pull requests get deploy previews
+# with their own (TEST) Paymob keys.
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  NEXT_TELEMETRY_DISABLED = "1"
+
+[functions]
+  directory = "netlify/functions"

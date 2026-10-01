@@ -40,19 +40,32 @@ export function paymobKeyMode(key: string): KeyMode {
 }
 
 /**
+ * 'production' | 'preview' | undefined for the running deployment. Netlify's
+ * CONTEXT (production / deploy-preview / branch-deploy) and Vercel's VERCEL_ENV
+ * are both understood; SAMS_DEPLOY_ENV overrides when set explicitly.
+ */
+export function deploymentEnvironment(env: NodeJS.ProcessEnv = process.env): 'production' | 'preview' | undefined {
+  const explicit = env.SAMS_DEPLOY_ENV ?? env.VERCEL_ENV;
+  if (explicit === 'production' || explicit === 'preview') return explicit;
+  if (env.CONTEXT === 'production') return 'production';
+  if (env.CONTEXT === 'deploy-preview' || env.CONTEXT === 'branch-deploy') return 'preview';
+  return undefined;
+}
+
+/**
  * Refuses key sets that are in the wrong mode for where they run: test keys on
  * the production deployment (customers would "pay" without being charged),
- * live keys on a Vercel preview (testing would charge real cards), or a secret
+ * live keys on a preview deployment (testing would charge real cards), or a secret
  * and public key from different modes. Unrecognised prefixes are allowed so a
  * format change at Paymob cannot silently switch checkout off.
  */
-export function paymobModeProblem(secretKey: string, publicKey: string, vercelEnv = process.env.VERCEL_ENV): string | null {
+export function paymobModeProblem(secretKey: string, publicKey: string, deployEnv = deploymentEnvironment()): string | null {
   const secret = paymobKeyMode(secretKey);
   const pub = paymobKeyMode(publicKey);
   if (secret !== 'unknown' && pub !== 'unknown' && secret !== pub) return 'secret and public keys are from different modes';
   const mode = secret !== 'unknown' ? secret : pub;
-  if (vercelEnv === 'production' && mode === 'test') return 'test keys configured on the production deployment';
-  if (vercelEnv === 'preview' && mode === 'live') return 'live keys configured on a preview deployment';
+  if (deployEnv === 'production' && mode === 'test') return 'test keys configured on the production deployment';
+  if (deployEnv === 'preview' && mode === 'live') return 'live keys configured on a preview deployment';
   return null;
 }
 

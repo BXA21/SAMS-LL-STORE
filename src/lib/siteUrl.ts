@@ -8,9 +8,9 @@
 
 // Canonical production origin. Used as the last resort so that a missing
 // NEXT_PUBLIC_SITE_URL can degrade to the real site instead of localhost.
-// Keep in step with the Vercel project name (samsoman.com once DNS points at
-// Vercel; NEXT_PUBLIC_SITE_URL is set to it in production).
-export const PRODUCTION_SITE_URL = 'https://samsllcoman.vercel.app';
+// The live store's canonical address (Netlify site samsllcoman). Production
+// also sets NEXT_PUBLIC_SITE_URL to it explicitly.
+export const PRODUCTION_SITE_URL = 'https://samsoman.com';
 
 const LOCAL_SITE_URL = 'http://localhost:3000';
 
