@@ -57,9 +57,6 @@ export default function Footer() {
               <li>
                 <Link href={href('/privacy')} className="hover:text-fire transition-colors">{t.footer.privacy}</Link>
               </li>
-              <li>
-                <Link href="/admin" className="hover:text-fire transition-colors">{t.nav.staffLogin}</Link>
-              </li>
             </ul>
           </div>
 

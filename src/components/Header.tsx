@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Search, User, ShoppingBag, Menu, X } from 'lucide-react';
+import { Search, ShoppingBag, Menu, X } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
 import { useHydrated } from '@/lib/useHydrated';
 import { useInternalPath, useLocalePath, useMessages } from '@/i18n/I18nProvider';
@@ -120,11 +120,6 @@ export default function Header() {
               <Search className="w-5 h-5" />
             </Link>
 
-            {/* Profile / Admin Login */}
-            <Link href="/admin" className={`hidden sm:inline-flex p-1.5 rounded-full ${iconColorClass}`} aria-label={t.nav.staffLogin}>
-              <User className="w-5 h-5" />
-            </Link>
-
             {/* Shopping Cart */}
             <button 
               onClick={() => openCart(true)} 
@@ -182,15 +177,6 @@ export default function Header() {
               }`}
             >
               {t.nav.contact}
-            </Link>
-            <Link 
-              href="/admin" 
-              onClick={() => setIsMobileMenuOpen(false)}
-              className={`block px-4 py-2.5 rounded-lg text-sm font-semibold tracking-wider uppercase ${
-                pathname === '/admin' ? 'bg-gray-100 text-fire' : 'text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              {t.nav.staffLogin}
             </Link>
           </div>
         </div>
