@@ -66,7 +66,9 @@ export interface Order {
   total_amount: number;
   currency: string;
   status: 'pending_payment' | 'pending' | 'paid' | 'completed' | 'delivered' | 'failed' | 'cancelled' | 'refunded' | 'manual_inquiry' | 'placement' | 'processing' | 'shipping';
-  payment_status: 'initiated' | 'pending' | 'successful' | 'failed' | 'cancelled' | 'refunded' | 'unpaid' | 'verified';
+  payment_status: 'initiated' | 'pending' | 'successful' | 'partially_refunded' | 'refunded' | 'voided' | 'failed' | 'cancelled' | 'unpaid' | 'verified';
+  refunded_minor?: number;
+  inventory_state?: 'none' | 'reserved' | 'committed' | 'released' | 'shortfall';
   payment_provider?: 'paymob' | 'manual';
   paymob_order_id?: string;
   paymob_transaction_id?: string;
@@ -151,6 +153,53 @@ export interface StaffProfile {
   full_name: string;
   role: StaffRole;
   is_active: boolean;
+}
+
+/** Public stock signal: 'available' means stock is not tracked for that product. */
+export type ProductAvailability = 'in_stock' | 'low_stock' | 'out_of_stock' | 'available';
+
+export interface InventoryRow {
+  product_id: string;
+  track_inventory: boolean;
+  stock_on_hand: number;
+  stock_reserved: number;
+  stock_available: number;
+  low_stock_threshold: number;
+  quantity_confirmed: boolean;
+  updated_at: string;
+}
+
+export interface PaymentRefund {
+  id: string;
+  kind: 'refund' | 'void';
+  amount_minor: number;
+  currency: string;
+  cumulative_refunded_minor: number;
+  created_at: string;
+}
+
+export interface NotificationStatus {
+  id: string;
+  event_type: string;
+  status: 'pending' | 'sending' | 'sent' | 'failed';
+  attempts: number;
+  sent_at: string | null;
+  last_error: string | null;
+  created_at: string;
+}
+
+export interface InventoryMovement {
+  id: number;
+  product_id: string;
+  order_id: string | null;
+  kind: string;
+  on_hand_before: number;
+  on_hand_after: number;
+  reserved_before: number;
+  reserved_after: number;
+  actor_role: string;
+  reason: string | null;
+  created_at: string;
 }
 
 export interface PaymentAlert {

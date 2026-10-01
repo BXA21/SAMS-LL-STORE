@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { dbService } from '@/services/dbService';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { Product, Inquiry, Order, Certificate, FAQ, SalesReport, OrderStatusHistoryEntry, PaymentAlert } from '@/types/database';
+import { Product, Inquiry, Order, Certificate, FAQ, SalesReport, OrderStatusHistoryEntry, PaymentAlert, InventoryRow, PaymentRefund, NotificationStatus } from '@/types/database';
 
 type ReportPeriod = '30d' | '90d' | '365d' | 'all';
 
@@ -141,6 +141,11 @@ export default function AdminPage() {
   const [orderNotesDraft, setOrderNotesDraft] = useState('');
   const [orderHistory, setOrderHistory] = useState<OrderStatusHistoryEntry[]>([]);
   const [paymentAlerts, setPaymentAlerts] = useState<PaymentAlert[]>([]);
+  const [inventory, setInventory] = useState<Record<string, InventoryRow>>({});
+  const [stockEdit, setStockEdit] = useState<{ product: Product; onHand: string; track: boolean; threshold: string; reason: string } | null>(null);
+  const [orderRefunds, setOrderRefunds] = useState<PaymentRefund[]>([]);
+  const [orderNotifications, setOrderNotifications] = useState<NotificationStatus[]>([]);
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'awaiting' | 'paid' | 'refunds' | 'failed'>('all');
 
   // Product Form Modal State
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
@@ -177,6 +182,7 @@ export default function AdminPage() {
       setFaqs(faqsData);
       setSiteSettings(settingsData);
       setPaymentAlerts(await dbService.getOpenPaymentAlerts());
+      setInventory(await dbService.getInventory());
       if (role === 'admin') setProductCosts(await dbService.getProductCosts());
     } catch (err) {
       setDataError(err instanceof Error ? err.message : 'Failed to load dashboard data.');
@@ -328,6 +334,62 @@ export default function AdminPage() {
   const applyOrderPatch = (id: string, patch: Partial<Order>) => {
     setOrders(prev => prev.map(o => o.id === id ? { ...o, ...patch } : o));
     setSelectedOrder(prev => (prev && prev.id === id ? { ...prev, ...patch } : prev));
+  };
+
+  const loadOrderDetails = async (orderId: string) => {
+    setOrderRefunds([]);
+    setOrderNotifications([]);
+    try {
+      setOrderRefunds(await dbService.getOrderRefunds(orderId));
+      if (userRole === 'admin') setOrderNotifications(await dbService.getOrderNotifications(orderId));
+    } catch {
+      /* details are supplementary; the order itself is already shown */
+    }
+  };
+
+  const handleSaveStock = async () => {
+    if (!stockEdit) return;
+    const onHand = Number(stockEdit.onHand);
+    const threshold = Number(stockEdit.threshold);
+    if (!Number.isInteger(onHand) || onHand < 0 || !Number.isInteger(threshold) || threshold < 0) {
+      setActionError('Stock and low-stock threshold must be whole numbers of 0 or more.');
+      return;
+    }
+    if (!stockEdit.reason.trim()) {
+      setActionError('Please give a reason for the stock change.');
+      return;
+    }
+    const current = inventory[stockEdit.product.id];
+    const result = await dbService.setStock({
+      productId: stockEdit.product.id,
+      expectedOnHand: current?.stock_on_hand ?? 0,
+      newOnHand: onHand,
+      trackInventory: stockEdit.track,
+      lowStockThreshold: threshold,
+      reason: stockEdit.reason.trim(),
+    });
+    if (result.ok) {
+      setStockEdit(null);
+      setInventory(await dbService.getInventory());
+    } else {
+      setActionError(result.message ?? 'Could not update stock.');
+      setInventory(await dbService.getInventory());
+    }
+  };
+
+  const handleReturnToStock = async (ord: Order, item: Order['items'][number]) => {
+    const qtyText = window.prompt(`How many units of ${item.product_name} physically came back to the shelf? (max ${item.quantity})`);
+    if (!qtyText) return;
+    const qty = Number(qtyText);
+    if (!Number.isInteger(qty) || qty < 1 || qty > item.quantity) {
+      setActionError(`Enter a whole number between 1 and ${item.quantity}.`);
+      return;
+    }
+    const reason = window.prompt('Reason (e.g. customer returned unopened goods) - required');
+    if (!reason || !reason.trim()) return;
+    const result = await dbService.returnToStock(ord.id, item.product_id, qty, reason.trim());
+    if (result.ok) setInventory(await dbService.getInventory());
+    else setActionError(result.message ?? 'Could not return the items to stock.');
   };
 
   const loadOrderHistory = async (orderId: string) => {
@@ -524,11 +586,21 @@ export default function AdminPage() {
     p.make.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const filteredOrders = orders.filter(o => 
-    o.customer_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (o.order_number ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    o.phone.includes(searchQuery) ||
-    o.email.toLowerCase().includes(searchQuery.toLowerCase())
+  const PAYMENT_FILTERS: Record<typeof paymentFilter, (o: Order) => boolean> = {
+    all: () => true,
+    awaiting: (o) => ['initiated', 'pending', 'unpaid'].includes(o.payment_status),
+    paid: (o) => ['successful', 'partially_refunded', 'verified'].includes(o.payment_status),
+    refunds: (o) => ['partially_refunded', 'refunded', 'voided'].includes(o.payment_status),
+    failed: (o) => ['failed', 'cancelled'].includes(o.payment_status),
+  };
+
+  const filteredOrders = orders.filter(o =>
+    PAYMENT_FILTERS[paymentFilter](o) && (
+      o.customer_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (o.order_number ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      o.phone.includes(searchQuery) ||
+      o.email.toLowerCase().includes(searchQuery.toLowerCase())
+    )
   );
 
   const filteredInquiries = inquiries.filter(i => 
@@ -1027,6 +1099,23 @@ export default function AdminPage() {
                 </div>
               </div>
 
+              {ordersTab === 'checkout' && (
+                <label className="flex items-center gap-2 text-[10px] uppercase font-bold tracking-wider text-gray-500 w-fit">
+                  Payment
+                  <select
+                    value={paymentFilter}
+                    onChange={(e) => setPaymentFilter(e.target.value as typeof paymentFilter)}
+                    className="text-[10px] uppercase font-bold tracking-wider bg-white border border-gray-200 rounded-lg p-2 focus:outline-none focus:border-fire"
+                  >
+                    <option value="all">All</option>
+                    <option value="awaiting">Awaiting payment</option>
+                    <option value="paid">Paid</option>
+                    <option value="refunds">Refunded / voided</option>
+                    <option value="failed">Failed / cancelled</option>
+                  </select>
+                </label>
+              )}
+
               {paymentAlerts.length > 0 && (
                 <section aria-label="Payment alerts" className="bg-red-50 border border-red-200 rounded-2xl p-5 space-y-3">
                   <h3 className="font-display text-base uppercase font-bold text-fire flex items-center gap-2">
@@ -1078,7 +1167,7 @@ export default function AdminPage() {
                           <tr
                             key={ord.id}
                             className="hover:bg-gray-50/50 transition-colors cursor-pointer"
-                            onClick={() => { setSelectedOrder(ord); setOrderNotesDraft(ord.staff_notes ?? ''); setOrderHistory([]); loadOrderHistory(ord.id); }}
+                            onClick={() => { setSelectedOrder(ord); setOrderNotesDraft(ord.staff_notes ?? ''); setOrderHistory([]); loadOrderHistory(ord.id); loadOrderDetails(ord.id); }}
                           >
                             <td className="p-4 pl-6">
                               <span className="font-mono font-bold text-navy block">{ord.order_number}</span>
@@ -1279,7 +1368,7 @@ export default function AdminPage() {
                         <th className="p-4">Make / Specs</th>
                         <th className="p-4">Weight</th>
                         <th className="p-4">OMR Price</th>
-                        <th className="p-4">Life Years</th>
+                        <th className="p-4">Stock</th>
                         <th className="p-4">Status</th>
                         <th className="p-4 text-right pr-6">Actions</th>
                       </tr>
@@ -1308,7 +1397,23 @@ export default function AdminPage() {
                           </td>
                           <td className="p-4 font-mono font-medium text-navy">{prod.weight}</td>
                           <td className="p-4 font-bold text-navy">{Number(prod.price).toFixed(3)} OMR</td>
-                          <td className="p-4 font-medium">{prod.life_years} Years</td>
+                          <td className="p-4">
+                            {(() => {
+                              const inv = inventory[prod.id];
+                              if (!inv) return <span className="text-gray-400">-</span>;
+                              if (!inv.track_inventory) return <span className="text-gray-500 font-semibold">Not tracked</span>;
+                              const low = inv.stock_available <= inv.low_stock_threshold;
+                              return (
+                                <div className="space-y-0.5">
+                                  <span className={`font-bold block ${inv.stock_available <= 0 ? 'text-fire' : low ? 'text-safety' : 'text-green-700'}`}>
+                                    {inv.stock_available} available{inv.stock_available <= 0 ? ' (out of stock)' : low ? ' (low)' : ''}
+                                  </span>
+                                  <span className="text-[10px] text-gray-400 block">{inv.stock_on_hand} on hand · {inv.stock_reserved} reserved</span>
+                                  {!inv.quantity_confirmed && <span className="text-[10px] text-fire font-bold block">Quantity not entered yet</span>}
+                                </div>
+                              );
+                            })()}
+                          </td>
                           <td className="p-4">
                             <span className={`px-2.5 py-1 rounded-full font-bold text-[9px] uppercase tracking-wider ${
                               prod.is_active ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
@@ -1317,10 +1422,23 @@ export default function AdminPage() {
                             </span>
                           </td>
                           <td className="p-4 text-right pr-6 space-x-2">
+                            {userRole === 'admin' && (
+                              <button
+                                onClick={() => {
+                                  const inv = inventory[prod.id];
+                                  setStockEdit({ product: prod, onHand: String(inv?.stock_on_hand ?? 0), track: inv?.track_inventory ?? true, threshold: String(inv?.low_stock_threshold ?? 3), reason: '' });
+                                }}
+                                className="p-2 bg-gray-50 hover:bg-navy/10 rounded-lg text-navy text-[10px] font-bold uppercase tracking-wider inline-block"
+                                title="Adjust stock"
+                              >
+                                Stock
+                              </button>
+                            )}
                             <button
                               onClick={() => openProductModal(prod)}
                               className="p-2 bg-gray-50 hover:bg-navy/10 rounded-lg text-navy hover:text-navy transition-all active:scale-95 inline-block"
                               title="Edit Product"
+                              hidden={userRole !== 'admin'}
                             >
                               <Edit3 className="w-4 h-4" />
                             </button>
@@ -1926,6 +2044,67 @@ export default function AdminPage() {
               </p>
               {selectedOrder.paymob_transaction_id && <p className="font-mono text-gray-500">Paymob transaction: {selectedOrder.paymob_transaction_id}</p>}
               {selectedOrder.paid_at && <p className="text-gray-500">Paid at {new Date(selectedOrder.paid_at).toLocaleString('en-GB', { timeZone: 'Asia/Muscat' })}</p>}
+              {Number(selectedOrder.refunded_minor ?? 0) > 0 && (
+                <p className="text-fire font-semibold">Refunded {(Number(selectedOrder.refunded_minor) / 1000).toFixed(3)} OMR of {Number(selectedOrder.total_amount).toFixed(3)} OMR</p>
+              )}
+              {orderRefunds.length > 0 && (
+                <ul className="space-y-1 pt-1">
+                  {orderRefunds.map((r) => (
+                    <li key={r.id} className="text-gray-600">
+                      {new Date(r.created_at).toLocaleString('en-GB', { timeZone: 'Asia/Muscat' })} · {r.kind} {(r.amount_minor / 1000).toFixed(3)} {r.currency} (total refunded {(r.cumulative_refunded_minor / 1000).toFixed(3)})
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="space-y-2">
+              <h4 className="text-[10px] uppercase font-bold tracking-widest text-gray-400">Stock</h4>
+              <p>
+                {({ none: 'No stock taken yet', reserved: 'Reserved while the customer pays', committed: 'Sold from stock', released: 'Reservation released (not sold)', shortfall: 'SHORTFALL: paid but not enough stock' } as Record<string, string>)[selectedOrder.inventory_state ?? 'none']}
+              </p>
+              {userRole === 'admin' && selectedOrder.inventory_state === 'shortfall' && (
+                <button
+                  onClick={async () => {
+                    const reason = window.prompt('Stock has been updated? Reason for retrying (required)');
+                    if (!reason || !reason.trim()) return;
+                    const result = await dbService.retryStockCommit(selectedOrder.id, reason.trim());
+                    if (result.ok) {
+                      applyOrderPatch(selectedOrder.id, { inventory_state: 'committed' });
+                      setInventory(await dbService.getInventory());
+                    } else {
+                      setActionError(result.message ?? 'Could not take stock for this order.');
+                    }
+                  }}
+                  className="bg-navy hover:bg-fire text-white text-[10px] uppercase tracking-wider font-bold py-2 px-3 rounded-lg"
+                >
+                  Retry stock
+                </button>
+              )}
+              {userRole === 'admin' && (selectedOrder.inventory_state === 'committed' || selectedOrder.inventory_state === 'shortfall') && (
+                <div className="flex flex-wrap gap-2">
+                  {selectedOrder.items.map((it) => (
+                    <button
+                      key={it.product_id}
+                      onClick={() => handleReturnToStock(selectedOrder, it)}
+                      className="bg-white border border-gray-200 hover:border-navy text-navy text-[10px] uppercase tracking-wider font-bold py-1.5 px-2.5 rounded-lg"
+                    >
+                      Return {it.product_name} to stock
+                    </button>
+                  ))}
+                </div>
+              )}
+              {userRole === 'admin' && orderNotifications.length > 0 && (
+                <div className="pt-1 space-y-1">
+                  <h5 className="text-[10px] uppercase font-bold tracking-widest text-gray-400">Notifications</h5>
+                  {orderNotifications.map((n) => (
+                    <p key={n.id} className="text-gray-600">
+                      {n.event_type.replace(/_/g, ' ')}: <strong className={n.status === 'sent' ? 'text-green-700' : n.status === 'failed' ? 'text-fire' : 'text-safety'}>{n.status}</strong>
+                      {n.attempts > 0 && n.status !== 'sent' ? ` (attempts ${n.attempts})` : ''}
+                    </p>
+                  ))}
+                </div>
+              )}
             </section>
 
             <section className="space-y-2">
@@ -1968,6 +2147,35 @@ export default function AdminPage() {
       )}
 
       {/* ============================================================== */}
+      {stockEdit && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setStockEdit(null)}>
+          <div role="dialog" aria-modal="true" aria-label="Adjust stock" className="bg-white rounded-3xl max-w-md w-full p-8 space-y-4 text-left text-xs" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-display text-xl font-bold uppercase tracking-wider text-navy">Stock: {stockEdit.product.name}</h3>
+            <p className="text-gray-500">Enter the real number of units on the shelf. Units reserved by customers who are paying right now cannot be removed.</p>
+            <label className="block space-y-1">
+              <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Units on hand</span>
+              <input type="number" min={0} step={1} value={stockEdit.onHand} onChange={(e) => setStockEdit({ ...stockEdit, onHand: e.target.value })} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm" />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Low-stock warning at</span>
+              <input type="number" min={0} step={1} value={stockEdit.threshold} onChange={(e) => setStockEdit({ ...stockEdit, threshold: e.target.value })} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm" />
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={stockEdit.track} onChange={(e) => setStockEdit({ ...stockEdit, track: e.target.checked })} className="accent-fire w-4 h-4" />
+              <span>Track stock for this product (untick only for made-to-order items)</span>
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Reason (required)</span>
+              <input type="text" maxLength={500} value={stockEdit.reason} onChange={(e) => setStockEdit({ ...stockEdit, reason: e.target.value })} placeholder="e.g. Stock count 1 Oct" className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm" />
+            </label>
+            <div className="flex justify-end gap-3 pt-2">
+              <button onClick={() => setStockEdit(null)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 uppercase tracking-widest font-bold px-5 py-3 rounded-xl">Cancel</button>
+              <button onClick={handleSaveStock} className="bg-navy hover:bg-fire text-white uppercase tracking-widest font-bold px-5 py-3 rounded-xl">Save stock</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* PRODUCT FORM MODAL */}
       {isProductModalOpen && editingProduct && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">

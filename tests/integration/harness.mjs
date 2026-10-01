@@ -88,7 +88,10 @@ export async function createStaffUser(email, fullName, role) {
 // --- Paymob mock --------------------------------------------------------------
 
 let nextOrderId = 700000 + Math.floor(Math.random() * 100000);
-export const mockState = { intentions: [], fail: false };
+export const mockState = { intentions: [], fail: false, emailFail: false, transactions: {}, emails: [] };
+export const RECOVERY_SECRET = 'local-test-recovery-secret-0123456789abcdef';
+export const STAFF_TEST_EMAIL = 'staff-inbox@example.test';
+export const APP_LOG = 'tests/.tmp/app.log';
 
 export function startMockPaymob() {
   const server = http.createServer((req, res) => {
@@ -96,7 +99,10 @@ export function startMockPaymob() {
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
       if (req.method === 'POST' && req.url === '/__control') {
-        mockState.fail = JSON.parse(body || '{}').fail === true;
+        const control = JSON.parse(body || '{}');
+        if ('fail' in control) mockState.fail = control.fail === true;
+        if ('emailFail' in control) mockState.emailFail = control.emailFail === true;
+        if (control.transactions) Object.assign(mockState.transactions, control.transactions);
         res.writeHead(204); res.end();
         return;
       }
@@ -113,6 +119,35 @@ export function startMockPaymob() {
         mockState.intentions.push({ request: payload, response: intention, auth: req.headers.authorization });
         res.writeHead(201, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(intention));
+        return;
+      }
+      // Paymob authentication + transaction inquiry (refund verification).
+      if (req.method === 'POST' && req.url === '/api/auth/tokens') {
+        const ok = JSON.parse(body || '{}').api_key === 'mock-api-key';
+        res.writeHead(ok ? 201 : 403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(ok ? { token: 'mock-auth-token' } : { detail: 'bad key' }));
+        return;
+      }
+      const inquiry = req.url.match(/^\/api\/acceptance\/transactions\/(\d+)$/);
+      if (req.method === 'GET' && inquiry) {
+        const tx = mockState.transactions[inquiry[1]];
+        if (req.headers.authorization !== 'Bearer mock-auth-token' || !tx) { res.writeHead(tx ? 401 : 404); res.end('{}'); return; }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(tx));
+        return;
+      }
+      // Local mock email inbox.
+      if (req.method === 'POST' && req.url === '/__email') {
+        if (mockState.emailFail) { res.writeHead(503); res.end('{}'); return; }
+        const message = JSON.parse(body || '{}');
+        mockState.emails.push({ ...message, idempotencyHeader: req.headers['idempotency-key'] });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ id: `mock-msg-${mockState.emails.length}` }));
+        return;
+      }
+      if (req.method === 'GET' && req.url === '/__emails') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(mockState.emails));
         return;
       }
       res.writeHead(404); res.end('{}');
@@ -142,7 +177,43 @@ export function appEnv() {
     PAYMOB_CALLBACK_BASE_URL: APP_URL,
     NEXT_PUBLIC_SITE_URL: APP_URL,
     CLIENT_IP_HEADER: 'x-nf-client-connection-ip',
+    PAYMOB_API_KEY: 'mock-api-key',
+    RECOVERY_WORKER_SECRET: RECOVERY_SECRET,
+    NOTIFICATION_PROVIDER: 'mock',
+    MOCK_EMAIL_URL: `${MOCK_PAYMOB_URL}/__email`,
+    ORDER_NOTIFICATION_EMAIL: STAFF_TEST_EMAIL,
+    SUPPORT_EMAIL: 'support@example.test',
   };
+}
+
+export async function mockControl(control) {
+  await fetch(`${MOCK_PAYMOB_URL}/__control`, { method: 'POST', body: JSON.stringify(control) });
+}
+
+export async function mockEmails() {
+  return (await fetch(`${MOCK_PAYMOB_URL}/__emails`)).json();
+}
+
+export async function runRecovery(secret = RECOVERY_SECRET) {
+  const res = await fetch(`${APP_URL}/api/internal/recovery`, { method: 'POST', headers: secret ? { Authorization: `Bearer ${secret}` } : {} });
+  return { status: res.status, body: await res.json().catch(() => null) };
+}
+
+/** Creates a throwaway ACTIVE product with confirmed stock (deactivate it after the test). */
+export function createTestProduct({ stock, track = true, price = '10.000', threshold = 3 }) {
+  const slug = `test-p2-${crypto.randomBytes(5).toString('hex')}`;
+  const id = sql(`insert into public.products (name, slug, make, product_type, price, weight) values ('TEST ${slug}', '${slug}', 'TEST', 'Test Item', ${price}, '1 kg') returning id;`).split('\n')[0];
+  sql(`update public.product_inventory set stock_on_hand = ${stock}, track_inventory = ${track}, low_stock_threshold = ${threshold}, quantity_confirmed = true where product_id = '${id}';`);
+  return { id, slug };
+}
+
+export function deactivateProduct(id) {
+  sql(`update public.products set is_active = false where id = '${id}';`);
+}
+
+export function stockOf(productId) {
+  const [onHand, reserved, available] = sql(`select stock_on_hand || '|' || stock_reserved || '|' || stock_available from public.product_inventory where product_id = '${productId}';`).split('|').map(Number);
+  return { onHand, reserved, available };
 }
 
 export async function assertPortFree(port) {
@@ -181,8 +252,12 @@ export async function startApp() {
   }
   const child = spawn('npx', ['next', dev ? 'dev' : 'start', '-p', String(APP_PORT)], { env, shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
-  child.stdout.on('data', (c) => { log += c; });
-  child.stderr.on('data', (c) => { log += c; });
+  const fsMod = await import('node:fs');
+  fsMod.mkdirSync('tests/.tmp', { recursive: true });
+  fsMod.writeFileSync(APP_LOG, '');
+  const append = (c) => { log += c; fsMod.appendFileSync(APP_LOG, c); };
+  child.stdout.on('data', append);
+  child.stderr.on('data', append);
   const deadline = Date.now() + 180_000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`app exited early:\n${log.slice(-2000)}`);
@@ -228,8 +303,9 @@ export async function postWebhook(obj, { hmac = signCallback(obj) } = {}) {
 
 // --- Customer-facing helpers ----------------------------------------------------
 
-let ipCounter = 10;
-export function freshIp() { ipCounter += 1; return `203.0.113.${ipCounter % 250}`; }
+// Random address in the 198.18.0.0/15 benchmark range: unique per call, so
+// per-client limits never leak between tests or test files.
+export function freshIp() { const b = crypto.randomBytes(2); return `198.${18 + (b[0] & 1)}.${b[0]}.${b[1] || 1}`; }
 
 export const customer = (tag) => ({
   fullName: `TEST ${tag} Customer`,
@@ -238,11 +314,11 @@ export const customer = (tag) => ({
   address: 'TEST address, Ruwi, Muscat',
 });
 
-export async function checkout(items, { ip = freshIp(), tag = 'buyer', extraHeaders = {} } = {}) {
+export async function checkout(items, { ip = freshIp(), tag = 'buyer', extraHeaders = {}, acknowledge = true } = {}) {
   const res = await fetch(`${APP_URL}/api/checkout/create-payment`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-nf-client-connection-ip': ip, ...extraHeaders },
-    body: JSON.stringify({ customer: customer(tag), items }),
+    body: JSON.stringify({ customer: customer(tag), items, ...(acknowledge ? { deliveryAcknowledged: true } : {}) }),
   });
   return { status: res.status, body: await res.json().catch(() => null), setCookie: res.headers.get('set-cookie') };
 }

@@ -2,6 +2,17 @@ import type { NextConfig } from "next";
 
 const isDev = process.env.NODE_ENV !== "production";
 
+// The exact Supabase origin this build talks to (plus its websocket form).
+function supabaseOrigins(): string {
+  try {
+    const url = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "");
+    const ws = url.protocol === "https:" ? `wss://${url.host}` : `ws://${url.host}`;
+    return `${url.origin} ${ws}`;
+  } catch {
+    return "";
+  }
+}
+
 // Next.js injects inline bootstrap scripts, so script-src keeps 'unsafe-inline';
 // everything else is locked to this site, Supabase and Paymob.
 const contentSecurityPolicy = [
@@ -10,7 +21,7 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   "img-src 'self' data: blob: https:",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+  `connect-src 'self' ${supabaseOrigins()} https://*.supabase.co wss://*.supabase.co`.replace(/\s+/g, " "),
   "frame-src 'self' https://oman.paymob.com https://www.google.com https://maps.google.com",
   "form-action 'self' https://oman.paymob.com",
   "frame-ancestors 'none'",

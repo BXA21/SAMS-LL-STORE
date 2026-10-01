@@ -28,6 +28,10 @@ const checkoutSchema = z.object({
   companyName: z.string().max(160).optional(),
   notes: z.string().max(2000).optional(),
   flow: z.enum(['online', 'manual']),
+  deliveryAcknowledged: z.boolean().optional(),
+}).refine((v) => v.flow !== 'online' || v.deliveryAcknowledged === true, {
+  path: ['deliveryAcknowledged'],
+  message: 'Please confirm you understand delivery is arranged and charged separately',
 });
 
 type CheckoutFormValues = z.infer<typeof checkoutSchema>;
@@ -44,6 +48,8 @@ export default function CheckoutClient({ onlinePaymentEnabled }: { onlinePayment
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState<QuotationResult | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  // One key per checkout attempt: a double click or resubmit cannot create a second order.
+  const [checkoutKey, setCheckoutKey] = useState(() => crypto.randomUUID());
 
   useEffect(() => {
     setMounted(true);
@@ -100,7 +106,7 @@ export default function CheckoutClient({ onlinePaymentEnabled }: { onlinePayment
     try {
       if (values.flow === 'online') {
         // Prices are recalculated on the server; the cart only sends products and quantities.
-        const { paymentUrl } = await dbService.startCardPayment(customer, lines);
+        const { paymentUrl } = await dbService.startCardPayment(customer, lines, checkoutKey);
         // The cart is kept until Paymob confirms payment, so a declined card loses nothing.
         window.location.assign(paymentUrl);
         return;
@@ -111,6 +117,8 @@ export default function CheckoutClient({ onlinePaymentEnabled }: { onlinePayment
       clearCart();
     } catch (err) {
       setCheckoutError(err instanceof Error ? err.message : 'An error occurred during checkout. Please try again.');
+      // A new attempt gets a new key (the failed one may already be recorded).
+      setCheckoutKey(crypto.randomUUID());
     }
     setIsSubmitting(false);
   };
@@ -350,6 +358,25 @@ export default function CheckoutClient({ onlinePaymentEnabled }: { onlinePayment
                 </div>
               </div>
 
+              {selectedFlow === 'online' && (
+                <div className="space-y-1.5">
+                  <label className="flex items-start gap-3 bg-light-grey/60 border border-gray-200 rounded-xl p-4 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      {...register('deliveryAcknowledged')}
+                      className="accent-fire w-4 h-4 mt-0.5 shrink-0"
+                    />
+                    <span className="text-xs text-gray-700 leading-relaxed">
+                      I understand my card payment covers the <strong>products only</strong>. Delivery is arranged separately:
+                      SAMS will contact me on WhatsApp to agree the delivery charge and timing before dispatch.
+                    </span>
+                  </label>
+                  {errors.deliveryAcknowledged && (
+                    <p className="text-xs text-red-500 font-medium">{errors.deliveryAcknowledged.message}</p>
+                  )}
+                </div>
+              )}
+
               {/* Submit Buttons */}
               <button
                 type="submit"
@@ -418,7 +445,7 @@ export default function CheckoutClient({ onlinePaymentEnabled }: { onlinePayment
                 </p>
               </div>
               <div className="flex justify-between text-base font-extrabold text-navy pt-1">
-                <span>Grand Total</span>
+                <span>Payable now (products)</span>
                 <span>{getTotalAmount().toFixed(3)} OMR</span>
               </div>
               <p className="text-[9px] text-gray-400 text-right font-light italic">

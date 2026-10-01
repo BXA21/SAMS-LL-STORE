@@ -19,8 +19,10 @@ const POLL_INTERVAL_MS = 2500;
 const MAX_POLLS = 12;
 
 function viewFor(order: OrderStatus): View {
-  if (order.payment_status === 'successful') return 'paid';
+  // Only server-confirmed payment states count; nothing here comes from the URL.
+  if (order.payment_status === 'successful' || order.payment_status === 'partially_refunded') return 'paid';
   if (order.payment_status === 'failed' || order.status === 'failed' || order.payment_status === 'cancelled') return 'failed';
+  if (order.payment_status === 'refunded' || order.payment_status === 'voided') return 'unknown';
   return 'pending';
 }
 

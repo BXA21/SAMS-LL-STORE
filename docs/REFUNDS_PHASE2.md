@@ -1,52 +1,53 @@
-# Refunds, voids and reconciliation — Phase 2 design (not implemented)
+# Refunds, voids and reconciliation
 
-Status: **tracked, not built.** Phase 1 records refund/void callbacks durably and
-flags them to staff, but never changes financial state from them.
+Status: **implemented and tested locally against a Paymob mock (Phase 2).**
+Not yet verified against Paymob's real test environment (see staging checklist).
+The site never issues refunds; the owner refunds in the Paymob dashboard and the
+site reconciles.
 
-## What exists after Phase 1
+## Why callbacks are not trusted directly
 
-| Piece | Behaviour |
-|---|---|
-| `paymob_callbacks` | Every HMAC-verified callback is stored with the signed flags `is_refunded`, `is_voided`, `is_auth`, `is_capture`, `has_parent_transaction` (inside `payload`). |
-| `process_paymob_callback` | A callback with `is_refunded` or `is_voided` = `true` → outcome `refund_or_void_recorded`, staff note on the order, **no** change to `payment_status`. `is_auth && !is_capture` → `authorization_only` (never paid). |
-| `get_sales_report` | `gross` (all captured), `refunds` (orders with `payment_status = 'refunded'`, currently always 0), `revenue` = net. |
-| Cancelled but paid orders | Stay in gross/net and raise a "refund or reinstate" alert (`cancelled_paid`). |
+Paymob's transaction-callback HMAC covers `is_refunded`, `is_voided`,
+`has_parent_transaction`, `amount_cents`, `id` and `order.id`, but **not** the
+parent transaction id or `refunded_amount_cents`. A refund callback therefore
+only *triggers* verification; the money facts come from Paymob Transaction
+Inquiry, called by our server with our own credentials.
 
-## Facts still to verify with Paymob Oman (before building)
+Documented inquiry fields used: `id`, `amount_cents`, `currency`, `success`,
+`pending`, `is_refund`, `is_refunded`, `refunded_amount_cents`, `is_void`,
+`is_voided`, `parent_transaction`, `has_parent_transaction`, `order`.
 
-1. **Refund callback shape.** Does a refund arrive as (a) the original transaction
-   re-sent with `is_refunded=true`, or (b) a new child transaction with
-   `has_parent_transaction=true` pointing at the original? The HMAC covers
-   `has_parent_transaction` and `is_refunded` but **not** the parent id or the
-   refunded amount, so the parent/amount must come from a signed field or from a
-   server-side Transaction Inquiry call (authenticated with our secret key).
-2. **Partial refunds.** Is `amount_cents` on a refund callback the refunded amount
-   or the original amount? Is `refunded_amount_cents` present, and is it signed?
-3. **Voids.** Same-day void vs refund semantics in Oman, and whether a void
-   callback is ever sent after settlement.
-4. **Ordering.** Can a refund callback arrive before the original success
-   callback (it must never create a "paid" order)?
+## Flow
 
-Use Paymob's test environment to issue a real test refund (no real money) and
-capture the exact callbacks before writing any state change.
+1. Signed callback with `is_refunded`, `is_voided` or `has_parent_transaction`
+   → stored in `paymob_callbacks` (dedupe key includes a payload hash so
+   successive partial refunds are not collapsed) → `refund_verifications` job.
+   No payment state changes.
+2. Recovery worker claims the job, fetches the reported transaction; if it is a
+   child refund/void it also fetches the **parent**.
+3. `apply_refund_reconciliation` compares the parent's authoritative cumulative
+   `refunded_amount_cents` (or full amount if `is_voided`) with refunds already
+   recorded and inserts only the **delta** into `payment_refunds`
+   (idempotency key `parent:kind:cumulative`). The same total can never be
+   counted twice, whichever callback (child or original) triggered it.
+4. Order `payment_status` → `partially_refunded` / `refunded` / `voided`;
+   `refunded_minor` updated. The original `payments` row is never rewritten.
+5. Staff notification `refund_recorded_staff` queued (idempotent).
+6. Refund reported before its payment is applied → `awaiting_parent`, retried.
+   Refund total above the captured amount → `refund_inconsistent` alert, not applied.
+   Unverifiable after 8 attempts → `refund_verification_failed` alert.
+7. Stock is **never** returned automatically. The owner uses
+   "Return items to stock" (validated against what was sold, idempotent, audited).
 
-## Proposed model
+## Reporting
 
-- `payment_refunds` table: `id`, `payment_id`, `provider_transaction_id` (unique),
-  `parent_transaction_id`, `amount_minor`, `kind` (`refund` | `void`),
-  `source_callback_id`, `confirmed_via_inquiry boolean`, `created_at`.
-- A refund is applied **only** when its authenticity and amount are established
-  (signed fields, or a server-side inquiry against Paymob that we initiate).
-- Order payment state derives from facts: `captured - refunded`:
-  - full refund → `payment_status = 'refunded'`
-  - partial → new `partially_refunded` status (additive CHECK change)
-- Idempotency: unique `provider_transaction_id`; replays are no-ops; a refund for
-  an unknown or unpaid payment is stored and flagged, never applied.
-- Reports: `refunds` = sum of confirmed refund amounts in the period;
-  `net = gross - refunds` (already the report's contract).
-- Refunds are **issued in the Paymob dashboard by the owner**; the site only
-  reconciles. No refund API calls from the site in Phase 2.
+`gross` = captured payments in the period (including later refunded/voided),
+`refunds` = sum of `payment_refunds` for those orders, `revenue` (net) = gross − refunds.
 
-## Out of scope until explicitly approved
+## Still to confirm on staging
 
-Issuing refunds from the SAMS dashboard, auth/capture integrations, chargebacks.
+- Exact Oman Transaction Inquiry path and auth (configurable:
+  `PAYMOB_INQUIRY_PATH`, `PAYMOB_AUTH_PATH`, `PAYMOB_API_KEY`).
+- Real shape of Paymob's refund/void callbacks (child transaction vs. original
+  re-sent) — both are handled; confirm with one partial and one full test refund.
+- That `refunded_amount_cents` on the parent is cumulative.

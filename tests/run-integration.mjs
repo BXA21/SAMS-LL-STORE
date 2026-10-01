@@ -1,10 +1,16 @@
 // Runs the integration suite against the isolated local environment only.
 // Usage: npm run test:integration   (requires `npx supabase start` for this repo)
 import { spawn, spawnSync } from 'node:child_process';
-import { assertIsolated, startApp, startMockPaymob, stack, APP_URL, MOCK_PAYMOB_URL } from './integration/harness.mjs';
+import { assertIsolated, sql, startApp, startMockPaymob, stack, APP_URL, MOCK_PAYMOB_URL } from './integration/harness.mjs';
 
 assertIsolated();
 process.stdout.write(`Isolated environment:\n  database: ${stack.url} (local SAMS stack)\n  paymob:   ${MOCK_PAYMOB_URL} (local mock)\n  app:      ${APP_URL}\n\n`);
+
+// Fixture (local database only): real products start untracked-quantity 0 by
+// design; give them ample stock so the general checkout tests can buy them.
+// Stock-specific tests create their own throwaway products.
+sql(`update public.product_inventory set stock_on_hand = greatest(stock_on_hand, 100000), quantity_confirmed = true
+     where product_id in (select id from public.products where slug not like 'test-p2-%');`);
 
 const mock = await startMockPaymob();
 const app = await startApp();

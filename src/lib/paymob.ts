@@ -81,7 +81,8 @@ export async function createIntention(config: PaymobConfig, req: IntentionReques
     special_reference: req.specialReference,
     notification_url: req.notificationUrl,
     redirection_url: req.redirectionUrl,
-    expiration: 3600,
+    // 30 minutes: inside the 35-minute stock reservation made at checkout.
+    expiration: 1800,
   };
 
   let res: Response;

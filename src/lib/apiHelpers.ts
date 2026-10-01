@@ -13,6 +13,10 @@ export type ApiErrorCode =
   | 'NOT_FOUND'
   | 'GONE'
   | 'PAYMENT_GATEWAY_ERROR'
+  | 'OUT_OF_STOCK'
+  | 'DUPLICATE_CHECKOUT'
+  | 'CARD_QUANTITY_LIMIT'
+  | 'UNAUTHORIZED'
   | 'INTERNAL_ERROR';
 
 export function apiError(

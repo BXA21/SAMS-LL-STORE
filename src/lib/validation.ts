@@ -50,6 +50,17 @@ export const checkoutSchema = z.object({
     .refine((items) => new Set(items.map((i) => i.slug)).size === items.length, 'Duplicate products in cart'),
 });
 
+/**
+ * Card checkout: the buyer must confirm that the card payment covers the
+ * products only and that delivery is arranged (and charged) separately.
+ */
+export const cardCheckoutSchema = checkoutSchema.extend({
+  deliveryAcknowledged: z.literal(true, { message: 'Please confirm you understand delivery is arranged separately' }),
+});
+
+/** Client-generated per-checkout key; a repeated submit of the same checkout is refused. */
+export const checkoutKeySchema = z.string().regex(/^[A-Za-z0-9-]{16,64}$/);
+
 export const inquirySchema = z.object({
   fullName: text(2, 120),
   email: z.string().trim().toLowerCase().email('Enter a valid email address').max(254),

@@ -173,15 +173,16 @@ test('multiple attempts for one order: an old attempt failing never overrides a 
   assert.equal(rows[0].provider_order_id, String(oldPo), 'earlier binding untouched');
 });
 
-test('refund / void callbacks are recorded and flagged without changing payment state (Phase 2)', async () => {
+test('refund / void callbacks never change payment state directly; they are queued for verification', async () => {
   const o = await newCardOrder('rf');
   const po = Number(o.payment.provider_order_id);
   await postWebhook(txn({ providerOrderId: po, amount: 24000 }));
   const r = await postWebhook(txn({ providerOrderId: po, amount: 24000, refunded: true }));
-  assert.equal(r.body.outcome, 'refund_or_void_recorded');
+  // Phase 2: a refund/void report is queued for verification with Paymob; nothing changes until then.
+  assert.equal(r.body.outcome, 'refund_verification_queued');
   const s = await orderState(o.orderNumber);
   assert.equal(s.payment_status, 'successful');
-  assert.equal(sql(`select count(*) from public.payment_alerts where kind = 'refund_or_void' and order_id = '${o.payment.order_id}';`), '1');
+  assert.equal(sql(`select count(*) from public.refund_verifications v join public.paymob_callbacks c on c.id = v.callback_id where c.provider_order_id = '${o.payment.provider_order_id}';`), '1');
 });
 
 test('redirect tampering changes nothing and carries no data forward', async () => {

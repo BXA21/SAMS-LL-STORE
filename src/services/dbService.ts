@@ -12,6 +12,11 @@ import {
   StaffProfile,
   OrderStatusHistoryEntry,
   PaymentAlert,
+  ProductAvailability,
+  InventoryRow,
+  InventoryMovement,
+  PaymentRefund,
+  NotificationStatus,
   SalesReport
 } from '@/types/database';
 
@@ -524,12 +529,12 @@ export class ApiRequestError extends Error {
   }
 }
 
-async function postJson<T>(url: string, body: unknown): Promise<T> {
+async function postJson<T>(url: string, body: unknown, extraHeaders: Record<string, string> = {}): Promise<T> {
   let res: Response;
   try {
     res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...extraHeaders },
       body: JSON.stringify(body),
     });
   } catch {
@@ -644,8 +649,13 @@ export const dbService = {
     return postJson<{ orderNumber: string; totalAmount: number; currency: string }>('/api/checkout/quote', { customer, items });
   },
 
-  async startCardPayment(customer: CheckoutCustomer, items: CheckoutLine[]) {
-    return postJson<{ orderNumber: string; paymentUrl: string }>('/api/checkout/create-payment', { customer, items });
+  /** checkoutKey: one per checkout attempt, so a double submit cannot create two orders. */
+  async startCardPayment(customer: CheckoutCustomer, items: CheckoutLine[], checkoutKey: string) {
+    return postJson<{ orderNumber: string; paymentUrl: string }>(
+      '/api/checkout/create-payment',
+      { customer, items, deliveryAcknowledged: true },
+      { 'Idempotency-Key': checkoutKey }
+    );
   },
 
   // --- SALES PIPELINE (staff session) ---
@@ -706,6 +716,91 @@ export const dbService = {
   },
 
   /** Open payment alerts (money that needs a human decision). Visible to all staff. */
+  /** Public stock signal per product slug (no exact quantities). */
+  async getProductAvailability(): Promise<Record<string, ProductAvailability>> {
+    if (!isSupabaseConfigured || !supabase) return {};
+    const { data, error } = await supabase.rpc('get_product_availability');
+    if (error || !Array.isArray(data)) return {};
+    return Object.fromEntries((data as { slug: string; availability: ProductAvailability }[]).map((r) => [r.slug, r.availability]));
+  },
+
+  /** Stock levels (all staff can read). */
+  async getInventory(): Promise<Record<string, InventoryRow>> {
+    const { data, error } = await requireDb().from('product_inventory').select('*');
+    if (error) throw new Error(error.message);
+    return Object.fromEntries(((data ?? []) as InventoryRow[]).map((r) => [r.product_id, r]));
+  },
+
+  async getInventoryMovements(productId: string): Promise<InventoryMovement[]> {
+    const { data, error } = await requireDb()
+      .from('inventory_movements')
+      .select('id, product_id, order_id, kind, on_hand_before, on_hand_after, reserved_before, reserved_after, actor_role, reason, created_at')
+      .eq('product_id', productId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as InventoryMovement[];
+  },
+
+  /** Owner only: set stock (stale-safe), tracking and low-stock threshold. */
+  async setStock(input: {
+    productId: string;
+    expectedOnHand: number;
+    newOnHand: number;
+    trackInventory: boolean;
+    lowStockThreshold: number;
+    reason: string;
+  }): Promise<{ ok: boolean; message?: string }> {
+    const { error } = await requireDb().rpc('owner_set_stock', {
+      p_product_id: input.productId,
+      p_expected_on_hand: input.expectedOnHand,
+      p_new_on_hand: input.newOnHand,
+      p_track_inventory: input.trackInventory,
+      p_low_stock_threshold: input.lowStockThreshold,
+      p_reason: input.reason,
+    });
+    return error ? { ok: false, message: error.message } : { ok: true };
+  },
+
+  /** Owner only: physically returned goods go back on the shelf (never automatic after a refund). */
+  async returnToStock(orderId: string, productId: string, quantity: number, reason: string): Promise<{ ok: boolean; message?: string }> {
+    const { error } = await requireDb().rpc('owner_return_to_stock', {
+      p_order_id: orderId,
+      p_product_id: productId,
+      p_quantity: quantity,
+      p_reason: reason,
+      p_idempotency_key: crypto.randomUUID(),
+    });
+    return error ? { ok: false, message: error.message } : { ok: true };
+  },
+
+  /** Owner only: after restocking, take stock for a paid order that had a shortfall. */
+  async retryStockCommit(orderId: string, reason: string): Promise<{ ok: boolean; message?: string }> {
+    const { error } = await requireDb().rpc('owner_retry_stock_commit', { p_order_id: orderId, p_reason: reason });
+    return error ? { ok: false, message: error.message } : { ok: true };
+  },
+
+  async getOrderRefunds(orderId: string): Promise<PaymentRefund[]> {
+    const { data, error } = await requireDb()
+      .from('payment_refunds')
+      .select('id, kind, amount_minor, currency, cumulative_refunded_minor, created_at')
+      .eq('order_id', orderId)
+      .order('created_at', { ascending: true });
+    if (error) throw new Error(error.message);
+    return (data ?? []) as PaymentRefund[];
+  },
+
+  /** Owner only (RLS): delivery status of this order's notifications. */
+  async getOrderNotifications(orderId: string): Promise<NotificationStatus[]> {
+    const { data, error } = await requireDb()
+      .from('notification_outbox')
+      .select('id, event_type, status, attempts, sent_at, last_error, created_at')
+      .eq('order_id', orderId)
+      .order('created_at', { ascending: true });
+    if (error) return [];
+    return (data ?? []) as NotificationStatus[];
+  },
+
   async getOpenPaymentAlerts(): Promise<PaymentAlert[]> {
     const { data, error } = await requireDb()
       .from('payment_alerts')

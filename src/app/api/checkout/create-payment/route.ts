@@ -1,11 +1,12 @@
 import crypto from 'crypto';
 import { apiError, apiOk, enforceRateLimit, logServer, readJson } from '@/lib/apiHelpers';
+import { clientIdentity, rateLimitKey } from '@/lib/clientIp';
 import { ORDER_ACCESS_COOKIE, orderAccessCookieOptions } from '@/lib/orderAccess';
 import { createIntention, PaymobError, unifiedCheckoutUrl } from '@/lib/paymob';
 import { getPaymobConfig } from '@/lib/serverEnv';
 import { getSiteUrl } from '@/lib/siteUrl';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { checkoutSchema } from '@/lib/validation';
+import { cardCheckoutSchema, checkoutKeySchema } from '@/lib/validation';
 import { createOrder } from '@/lib/orderFactory';
 
 export const runtime = 'nodejs';
@@ -41,13 +42,14 @@ export async function POST(request: Request) {
     );
   }
 
-  const body = await readJson(request, checkoutSchema);
+  const body = await readJson(request, cardCheckoutSchema);
   if (!body.ok) return body.response;
 
   const limit = await enforceRateLimit(db, 'checkout', request, 8, 600);
   if (!limit.ok) return limit.response;
 
-  const created = await createOrder(db, body.value, 'online');
+  const key = checkoutKeySchema.safeParse(request.headers.get('idempotency-key'));
+  const created = await createOrder(db, body.value, 'online', key.success ? key.data : null, rateLimitKey('checkout-owner', clientIdentity(request.headers)));
   if (!created.ok) return created.response;
   const order = created.order;
 
@@ -73,6 +75,9 @@ export async function POST(request: Request) {
   const failAttempt = async (reason: string) => {
     await db.from('payments').update({ status: 'error', last_error: reason.slice(0, 300) }).eq('id', payment.id);
     await db.from('orders').update({ status: 'failed', payment_status: 'failed' }).eq('id', order.order_id).eq('payment_status', 'initiated');
+    // The buyer never reached a payment page: give the reserved stock back now.
+    const { error } = await db.rpc('release_order_reservations', { p_order_id: order.order_id, p_kind: 'release' });
+    if (error) logServer('checkout_release_failed', { order: order.order_number, message: error.message.slice(0, 200) });
   };
 
   const { data: orderRow } = await db.from('orders').select('items').eq('id', order.order_id).single();

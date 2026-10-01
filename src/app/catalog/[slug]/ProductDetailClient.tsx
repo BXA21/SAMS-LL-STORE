@@ -17,7 +17,7 @@ import {
   PhoneCall
 } from 'lucide-react';
 import { dbService } from '@/services/dbService';
-import { Product } from '@/types/database';
+import { Product, type ProductAvailability } from '@/types/database';
 import { useCartStore } from '@/store/cartStore';
 
 interface ProductDetailClientProps {
@@ -40,6 +40,9 @@ export default function ProductDetailClient({
   const [product, setProduct] = useState<Product | null>(initialProduct);
   const [relatedProducts, setRelatedProducts] = useState<Product[]>(initialRelatedProducts);
   const [quantity, setQuantity] = useState(1);
+  // Stock availability from the server (no exact counts); null = unknown / not loaded.
+  const [availability, setAvailability] = useState<ProductAvailability | null>(null);
+  const outOfStock = availability === 'out_of_stock';
   const [activeTab, setActiveTab] = useState<'overview' | 'features' | 'specs' | 'safety'>('overview');
 
   const addItem = useCartStore((state) => state.addItem);
@@ -59,6 +62,10 @@ export default function ProductDetailClient({
         if (cancelled || !prod) return;
         setProduct(prod);
         setSelectedImage(prod.images[0] || '/hero_bg.png');
+
+        const availabilityMap = await dbService.getProductAvailability();
+        if (cancelled) return;
+        setAvailability(availabilityMap[prod.slug] ?? null);
 
         const allProds = await dbService.getProducts();
         if (cancelled) return;
@@ -239,7 +246,7 @@ export default function ProductDetailClient({
                   </button>
                   <span className="px-5 font-semibold text-sm">{quantity}</span>
                   <button
-                    onClick={() => setQuantity(quantity + 1)}
+                    onClick={() => setQuantity(Math.min(1000, quantity + 1))}
                     className="px-3.5 py-2.5 hover:bg-gray-50 text-gray-500 hover:text-gray-900 transition-colors font-bold text-lg"
                     aria-label="Increase quantity"
                   >
@@ -249,12 +256,28 @@ export default function ProductDetailClient({
                 
                 <button
                   onClick={handleAddToCart}
-                  className="flex-grow bg-fire hover:bg-fire/90 text-white text-xs uppercase tracking-widest font-bold py-4 px-6 rounded-md flex items-center justify-center gap-2 transition-all hover:scale-[1.02] shadow-md shadow-fire/15"
+                  disabled={outOfStock}
+                  className="flex-grow bg-fire hover:bg-fire/90 disabled:bg-gray-300 disabled:hover:scale-100 disabled:cursor-not-allowed text-white text-xs uppercase tracking-widest font-bold py-4 px-6 rounded-md flex items-center justify-center gap-2 transition-all hover:scale-[1.02] shadow-md shadow-fire/15"
                 >
                   <ShoppingCart className="w-4 h-4" />
-                  Add To Cart
+                  {outOfStock ? 'Out of Stock' : 'Add To Cart'}
                 </button>
               </div>
+
+              {availability && availability !== 'available' && (
+                <p
+                  role="status"
+                  className={`text-xs font-semibold ${
+                    availability === 'out_of_stock' ? 'text-fire' : availability === 'low_stock' ? 'text-safety' : 'text-green-700'
+                  }`}
+                >
+                  {availability === 'out_of_stock'
+                    ? 'Currently out of stock for online payment. Send a quote request and our team will confirm availability.'
+                    : availability === 'low_stock'
+                      ? 'Low stock: only a few units available.'
+                      : 'In stock.'}
+                </p>
+              )}
 
               {/* Enquiry & WhatsApp CTA Buttons */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
