@@ -1,3 +1,6 @@
+/** Staff-edited localized copy, e.g. { ar: { name: '…' } }. Shape-checked in src/i18n/content.ts. */
+export type ContentTranslations = { ar?: Record<string, unknown> };
+
 export interface Category {
   id: string;
   name: string;
@@ -5,6 +8,7 @@ export interface Category {
   description?: string;
   image_url?: string;
   is_active: boolean;
+  translations?: ContentTranslations;
   created_at: string;
   updated_at: string;
 }
@@ -32,6 +36,7 @@ export interface Product {
   usage_areas: string[];
   is_featured: boolean;
   is_active: boolean;
+  translations?: ContentTranslations;
   created_at: string;
   updated_at: string;
 }
@@ -125,6 +130,7 @@ export interface Testimonial {
   message: string;
   rating: number;
   is_active: boolean;
+  translations?: ContentTranslations;
   created_at: string;
   updated_at: string;
 }
@@ -135,6 +141,7 @@ export interface FAQ {
   answer: string;
   order_index: number;
   is_active: boolean;
+  translations?: ContentTranslations;
   created_at: string;
   updated_at: string;
 }

@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { DEFAULT_LOCALE, LOCALE_COOKIE, isLocale, localePath } from '@/i18n/config';
 import { logServer } from '@/lib/apiHelpers';
 import { verifyRedirectHmac } from '@/lib/paymob';
 import { getPaymobConfig } from '@/lib/serverEnv';
 import { getSiteUrl } from '@/lib/siteUrl';
 
 export const runtime = 'nodejs';
+// Hard cap on billed execution time if a downstream call hangs.
+export const maxDuration = 10;
 export const dynamic = 'force-dynamic';
 
 /**
@@ -21,5 +25,7 @@ export async function GET(request: Request) {
   if (paymob && params.has('hmac') && !verifyRedirectHmac(paymob.hmacSecret, params)) {
     logServer('paymob_return_bad_hmac');
   }
-  return NextResponse.redirect(new URL('/checkout/result', getSiteUrl()), { status: 303 });
+  const cookieLocale = (await cookies()).get(LOCALE_COOKIE)?.value;
+  const locale = isLocale(cookieLocale) ? cookieLocale : DEFAULT_LOCALE;
+  return NextResponse.redirect(new URL(localePath(locale, '/checkout/result'), getSiteUrl()), { status: 303 });
 }

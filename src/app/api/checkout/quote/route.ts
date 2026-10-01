@@ -4,6 +4,8 @@ import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { checkoutSchema } from '@/lib/validation';
 
 export const runtime = 'nodejs';
+// Hard cap on billed execution time if a downstream call hangs.
+export const maxDuration = 10;
 export const dynamic = 'force-dynamic';
 
 /** Quotation / invoice request from the cart. Priced on the server exactly like a card order. */

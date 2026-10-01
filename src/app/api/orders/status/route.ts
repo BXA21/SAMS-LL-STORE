@@ -3,6 +3,8 @@ import { readOrderAccessToken } from '@/lib/orderAccess';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
+// Hard cap on billed execution time if a downstream call hangs.
+export const maxDuration = 10;
 export const dynamic = 'force-dynamic';
 
 /**

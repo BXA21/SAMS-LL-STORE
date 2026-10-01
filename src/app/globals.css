@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Oswald:wght@400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Oswald:wght@400;600;700&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=Cairo:wght@600;700;800&display=swap');
 @import "tailwindcss";
 
 :root {
@@ -91,3 +91,40 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
+
+/*
+ * Arabic (dir="rtl"). Oswald and Inter have no Arabic glyphs, so Arabic text
+ * gets Cairo for headings and IBM Plex Sans Arabic for body copy, while Latin
+ * fragments (brand names, prices) still fall back to the English faces.
+ *
+ * Letter-spacing breaks the joins between Arabic letters and upper-casing has
+ * no meaning in Arabic, so the tracking-* / uppercase utilities used for the
+ * English design are neutralised here rather than forked per component.
+ */
+[dir="rtl"] body {
+  font-family: 'IBM Plex Sans Arabic', 'Inter', sans-serif;
+}
+
+[dir="rtl"] h1,
+[dir="rtl"] h2,
+[dir="rtl"] h3,
+[dir="rtl"] h4,
+[dir="rtl"] h5,
+[dir="rtl"] h6,
+[dir="rtl"] .font-display {
+  font-family: 'Cairo', 'Oswald', sans-serif;
+}
+
+[dir="rtl"] * {
+  letter-spacing: 0 !important;
+}
+
+[dir="rtl"] .font-light {
+  font-weight: 400;
+}
+
+/* Arabic display type needs more room between lines than condensed Oswald. */
+[dir="rtl"] h1,
+[dir="rtl"] h2 {
+  line-height: 1.3;
+}

@@ -17,14 +17,28 @@ import {
   InventoryMovement,
   PaymentRefund,
   NotificationStatus,
-  SalesReport
+  SalesReport,
+  ContentTranslations
 } from '@/types/database';
+import { CATEGORY_AR, FAQ_AR, PRODUCT_AR, TESTIMONIAL_AR } from '@/i18n/arabicContent';
 
 // -----------------------------------------------------------------------------
 // LOCAL STORAGE & SEED MOCK DATA FALLBACKS
 // -----------------------------------------------------------------------------
 
-const DEFAULT_CATEGORIES: Category[] = [
+/** Attaches the seeded Arabic copy to the offline defaults, mirroring the database rows. */
+function withArabic<T extends { translations?: ContentTranslations }>(
+  arabic: Record<string, object>,
+  keyOf: (row: T) => string,
+  rows: T[]
+): T[] {
+  return rows.map((row) => {
+    const ar = arabic[keyOf(row)];
+    return ar ? { ...row, translations: { ar: { ...ar } } } : row;
+  });
+}
+
+const DEFAULT_CATEGORIES: Category[] = withArabic(CATEGORY_AR, (c: Category) => c.slug, [
   {
     id: '11111111-1111-1111-1111-111111111111',
     name: 'Fire Extinguisher Balls',
@@ -45,9 +59,9 @@ const DEFAULT_CATEGORIES: Category[] = [
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }
-];
+]);
 
-export const DEFAULT_PRODUCTS: Product[] = [
+export const DEFAULT_PRODUCTS: Product[] = withArabic(PRODUCT_AR, (p: Product) => p.slug, [
   {
     id: 'p1',
     name: 'GFO Baby Fire Ball 400 gms',
@@ -237,9 +251,9 @@ export const DEFAULT_PRODUCTS: Product[] = [
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }
-];
+]);
 
-const DEFAULT_TESTIMONIALS: Testimonial[] = [
+const DEFAULT_TESTIMONIALS: Testimonial[] = withArabic(TESTIMONIAL_AR, (t: Testimonial) => t.name, [
   {
     id: 't1',
     name: 'Rahul Kumar',
@@ -273,9 +287,9 @@ const DEFAULT_TESTIMONIALS: Testimonial[] = [
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }
-];
+]);
 
-const DEFAULT_FAQS: FAQ[] = [
+const DEFAULT_FAQS: FAQ[] = withArabic(FAQ_AR, (f: FAQ) => f.question, [
   {
     id: 'f1',
     question: 'What is the effectiveness of fire balls?',
@@ -348,7 +362,7 @@ const DEFAULT_FAQS: FAQ[] = [
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }
-];
+]);
 
 const DEFAULT_CERTIFICATES: Certificate[] = [
   {
@@ -458,9 +472,9 @@ function safeRemoveItem(key: string): void {
  * price reuses one of those numbers. Bump SEED_VERSION whenever DEFAULT_PRODUCTS
  * or DEFAULT_SITE_SETTINGS change and every browser reseeds once on its next load.
  */
-const SEED_VERSION = '2026-09-03-pricing';
+const SEED_VERSION = '2026-10-01-arabic';
 const SEED_VERSION_KEY = 'sams_seed_version';
-const VERSIONED_SEED_KEYS = ['sams_products', 'sams_site_settings'];
+const VERSIONED_SEED_KEYS = ['sams_products', 'sams_site_settings', 'sams_categories', 'sams_faqs', 'sams_testimonials'];
 
 let seedVersionChecked = false;
 
@@ -555,7 +569,7 @@ async function postJson<T>(url: string, body: unknown, extraHeaders: Record<stri
 const PRODUCT_WRITABLE_FIELDS = [
   'name', 'slug', 'make', 'category_id', 'product_type', 'short_description', 'overview', 'price',
   'weight', 'life_years', 'quantity', 'stock', 'images', 'key_features', 'specifications',
-  'best_for', 'safety_notes', 'usage_areas', 'is_featured', 'is_active',
+  'best_for', 'safety_notes', 'usage_areas', 'is_featured', 'is_active', 'translations',
 ] as const satisfies readonly (keyof Product)[];
 
 function pickProductFields(product: Partial<Product>): Partial<Product> {
@@ -933,7 +947,7 @@ export const dbService = {
 
   async saveFAQ(faq: Partial<FAQ>): Promise<FAQ> {
     const db = requireDb();
-    const fields = { question: faq.question, answer: faq.answer, order_index: faq.order_index, is_active: faq.is_active };
+    const fields = { question: faq.question, answer: faq.answer, order_index: faq.order_index, is_active: faq.is_active, translations: faq.translations };
     const query = faq.id
       ? db.from('faqs').update(fields).eq('id', faq.id)
       : db.from('faqs').insert({ ...fields, order_index: fields.order_index ?? 100 });

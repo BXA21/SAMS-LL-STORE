@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import {
   LayoutDashboard,
   ShoppingBag,
@@ -27,10 +28,12 @@ import {
   Mail,
   CreditCard,
   RefreshCw,
+  ExternalLink,
+  Languages,
 } from 'lucide-react';
 import { dbService } from '@/services/dbService';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { Product, Inquiry, Order, Certificate, FAQ, SalesReport, OrderStatusHistoryEntry, PaymentAlert, InventoryRow, PaymentRefund, NotificationStatus } from '@/types/database';
+import { ContentTranslations, Product, Inquiry, Order, Certificate, FAQ, SalesReport, OrderStatusHistoryEntry, PaymentAlert, InventoryRow, PaymentRefund, NotificationStatus } from '@/types/database';
 
 type ReportPeriod = '30d' | '90d' | '365d' | 'all';
 
@@ -50,6 +53,114 @@ function periodRange(period: ReportPeriod): { from: Date; to: Date } {
 
 function formatOmr(value: number): string {
   return `${Number(value || 0).toFixed(3)} OMR`;
+}
+
+// --- ARABIC CONTENT (translations.ar) ---
+// The storefront falls back to the English column for any Arabic field left
+// blank, so empty values are dropped rather than saved.
+
+type ArabicFields = Record<string, unknown>;
+
+function arabicOf(row: { translations?: ContentTranslations } | null | undefined): ArabicFields {
+  const ar = row?.translations?.ar;
+  return ar && typeof ar === 'object' && !Array.isArray(ar) ? ar : {};
+}
+
+function arText(ar: ArabicFields, key: string): string {
+  const value = ar[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function arLines(ar: ArabicFields, key: string): string {
+  const value = ar[key];
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string').join('\n') : '';
+}
+
+function arSpecs(ar: ArabicFields): string {
+  const value = ar.specifications;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  return Object.entries(value)
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n');
+}
+
+function parseLines(text: string): string[] {
+  return text.split('\n').map((line) => line.trim()).filter(Boolean);
+}
+
+function parseSpecs(text: string): Record<string, string> {
+  const specs: Record<string, string> = {};
+  for (const line of parseLines(text)) {
+    const at = line.indexOf(':');
+    if (at <= 0) continue;
+    const key = line.slice(0, at).trim();
+    const value = line.slice(at + 1).trim();
+    if (key && value) specs[key] = value;
+  }
+  return specs;
+}
+
+/** Merges new Arabic copy into existing translations, dropping blanks and keeping other locales. */
+function mergeArabic(existing: ContentTranslations | undefined, ar: ArabicFields): ContentTranslations {
+  const cleaned: ArabicFields = {};
+  for (const [key, value] of Object.entries(ar)) {
+    if (typeof value === 'string' && value.trim()) cleaned[key] = value.trim();
+    else if (Array.isArray(value) && value.length) cleaned[key] = value;
+    else if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length) cleaned[key] = value;
+  }
+  const next: ContentTranslations = { ...(existing ?? {}) };
+  if (Object.keys(cleaned).length) next.ar = cleaned;
+  else delete next.ar;
+  return next;
+}
+
+function hasArabic(row: { translations?: ContentTranslations }): boolean {
+  return arText(arabicOf(row), 'name').trim() !== '';
+}
+
+interface ProductArabicForm {
+  name: string;
+  product_type: string;
+  weight: string;
+  short_description: string;
+  overview: string;
+  key_features: string;
+  best_for: string;
+  safety_notes: string;
+  usage_areas: string;
+  specifications: string;
+}
+
+function productArabicForm(product: Partial<Product>): ProductArabicForm {
+  const ar = arabicOf(product);
+  return {
+    name: arText(ar, 'name'),
+    product_type: arText(ar, 'product_type'),
+    weight: arText(ar, 'weight'),
+    short_description: arText(ar, 'short_description'),
+    overview: arText(ar, 'overview'),
+    key_features: arLines(ar, 'key_features'),
+    best_for: arLines(ar, 'best_for'),
+    safety_notes: arLines(ar, 'safety_notes'),
+    usage_areas: arLines(ar, 'usage_areas'),
+    specifications: arSpecs(ar),
+  };
+}
+
+function productArabicFields(form: ProductArabicForm): ArabicFields {
+  return {
+    name: form.name,
+    product_type: form.product_type,
+    weight: form.weight,
+    short_description: form.short_description,
+    overview: form.overview,
+    key_features: parseLines(form.key_features),
+    best_for: parseLines(form.best_for),
+    safety_notes: parseLines(form.safety_notes),
+    usage_areas: parseLines(form.usage_areas),
+    specifications: parseSpecs(form.specifications),
+  };
 }
 
 /** Converts a customer phone number to the digits wa.me expects, defaulting to Oman (+968). */
@@ -151,10 +262,14 @@ export default function AdminPage() {
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
   const [editingCost, setEditingCost] = useState<string>('');
+  const [productAr, setProductAr] = useState<ProductArabicForm>(() => productArabicForm({}));
 
   // FAQ Form State
   const [faqQuestion, setFaqQuestion] = useState('');
   const [faqAnswer, setFaqAnswer] = useState('');
+  const [faqQuestionAr, setFaqQuestionAr] = useState('');
+  const [faqAnswerAr, setFaqAnswerAr] = useState('');
+  const [faqArEdit, setFaqArEdit] = useState<{ id: string; question: string; answer: string } | null>(null);
 
   // Certificate Form State
   const [certName, setCertName] = useState('');
@@ -276,6 +391,7 @@ export default function AdminPage() {
 
   const openProductModal = (product: Partial<Product>) => {
     setEditingProduct(product);
+    setProductAr(productArabicForm(product));
     setEditingCost(product.id && productCosts[product.id] !== undefined ? String(productCosts[product.id]) : '');
     setIsProductModalOpen(true);
   };
@@ -286,7 +402,10 @@ export default function AdminPage() {
     if (!editingProduct) return;
     setActionError(null);
     try {
-      const saved = await dbService.saveProduct(editingProduct);
+      const saved = await dbService.saveProduct({
+        ...editingProduct,
+        translations: mergeArabic(editingProduct.translations, productArabicFields(productAr)),
+      });
       const cost = editingCost.trim() === '' ? null : Number(editingCost);
       if (cost !== null && (!Number.isFinite(cost) || cost < 0)) throw new Error('Unit cost must be a positive number.');
       await dbService.saveProductCost(saved.id, cost);
@@ -479,12 +598,36 @@ export default function AdminPage() {
     e.preventDefault();
     if (!faqQuestion.trim() || !faqAnswer.trim()) return;
     try {
-      await dbService.saveFAQ({ question: faqQuestion, answer: faqAnswer, is_active: true, order_index: faqs.length + 1 });
+      await dbService.saveFAQ({
+        question: faqQuestion,
+        answer: faqAnswer,
+        is_active: true,
+        order_index: faqs.length + 1,
+        translations: mergeArabic(undefined, { question: faqQuestionAr, answer: faqAnswerAr }),
+      });
       setFaqs(await dbService.getAllFAQsAdmin());
       setFaqQuestion('');
       setFaqAnswer('');
+      setFaqQuestionAr('');
+      setFaqAnswerAr('');
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to add FAQ.');
+    }
+  };
+
+  const handleSaveFAQArabic = async () => {
+    if (!faqArEdit) return;
+    const faq = faqs.find((f) => f.id === faqArEdit.id);
+    if (!faq) return;
+    try {
+      const saved = await dbService.saveFAQ({
+        id: faq.id,
+        translations: mergeArabic(faq.translations, { question: faqArEdit.question, answer: faqArEdit.answer }),
+      });
+      setFaqs((prev) => prev.map((f) => (f.id === saved.id ? saved : f)));
+      setFaqArEdit(null);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to save Arabic FAQ.');
     }
   };
 
@@ -628,7 +771,11 @@ export default function AdminPage() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-[#F4F6F8] flex items-center justify-center px-4 sm:px-6 lg:px-8 text-gray-900 font-sans">
+      <div className="min-h-screen bg-[#F4F6F8] flex flex-col items-center justify-center gap-6 px-4 sm:px-6 lg:px-8 py-10 text-gray-900 font-sans">
+        <Link href="/" className="flex items-center gap-2 text-navy hover:text-fire transition-colors">
+          <Image src="/logo.png" alt="SAMS logo" width={36} height={36} className="object-contain" />
+          <span className="font-display text-lg tracking-wider font-bold">SAMS LLC</span>
+        </Link>
         <div className="max-w-md w-full space-y-8 bg-white p-10 rounded-3xl border border-gray-150 shadow-xl">
           <div className="text-center space-y-3">
             <div className="bg-fire/10 p-4 rounded-full w-fit mx-auto text-fire">
@@ -883,6 +1030,15 @@ export default function AdminPage() {
 
           {/* User Status Bar */}
           <div className="flex items-center gap-6">
+            <a
+              href="/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden md:inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-bold text-navy hover:text-fire transition-colors"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              View store
+            </a>
             <button
               onClick={() => fetchAdminData(userRole)}
               disabled={dataLoading}
@@ -1390,6 +1546,11 @@ export default function AdminPage() {
                           <td className="p-4">
                             <span className="font-bold text-navy block">{prod.name}</span>
                             <span className="text-gray-450 text-[10px] font-mono block">{prod.slug}</span>
+                            {hasArabic(prod) ? (
+                              <span className="mt-1 inline-block px-1.5 py-0.5 rounded bg-green-50 text-green-700 text-[9px] font-bold uppercase tracking-wider" title={arText(arabicOf(prod), 'name')}>AR ✓</span>
+                            ) : (
+                              <span className="mt-1 inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[9px] font-bold uppercase tracking-wider">AR missing</span>
+                            )}
                           </td>
                           <td className="p-4">
                             <span className="font-semibold text-gray-700 block">{prod.make}</span>
@@ -1827,6 +1988,29 @@ export default function AdminPage() {
                         className="w-full bg-white border border-gray-200 rounded-lg p-2.5 text-xs text-gray-700 h-20 focus:outline-none"
                       />
                     </div>
+                    <div className="space-y-1">
+                      <label htmlFor="faq-question-ar" className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">Arabic Question (optional)</label>
+                      <input
+                        id="faq-question-ar"
+                        type="text"
+                        dir="rtl"
+                        lang="ar"
+                        value={faqQuestionAr}
+                        onChange={(e) => setFaqQuestionAr(e.target.value)}
+                        className="w-full bg-white border border-gray-200 rounded-lg p-2.5 text-xs text-gray-700"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="faq-answer-ar" className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">Arabic Answer (optional)</label>
+                      <textarea
+                        id="faq-answer-ar"
+                        dir="rtl"
+                        lang="ar"
+                        value={faqAnswerAr}
+                        onChange={(e) => setFaqAnswerAr(e.target.value)}
+                        className="w-full bg-white border border-gray-200 rounded-lg p-2.5 text-xs text-gray-700 h-20 focus:outline-none"
+                      />
+                    </div>
                     <button
                       type="submit"
                       className="w-full bg-navy hover:bg-fire text-white text-[10px] uppercase tracking-wider font-bold py-2.5 px-4 rounded-lg transition-all"
@@ -1848,6 +2032,56 @@ export default function AdminPage() {
                           </button>
                         </div>
                         <p className="text-gray-450 font-light leading-relaxed">{faq.answer}</p>
+                        {faqArEdit?.id === faq.id ? (
+                          <div className="space-y-2 pt-2 border-t border-gray-100">
+                            <input
+                              type="text"
+                              dir="rtl"
+                              lang="ar"
+                              aria-label="Arabic question"
+                              placeholder="السؤال"
+                              value={faqArEdit.question}
+                              onChange={(e) => setFaqArEdit({ ...faqArEdit, question: e.target.value })}
+                              className="w-full bg-white border border-gray-200 rounded-lg p-2.5 text-xs text-gray-700"
+                            />
+                            <textarea
+                              dir="rtl"
+                              lang="ar"
+                              aria-label="Arabic answer"
+                              placeholder="الإجابة"
+                              value={faqArEdit.answer}
+                              onChange={(e) => setFaqArEdit({ ...faqArEdit, answer: e.target.value })}
+                              className="w-full bg-white border border-gray-200 rounded-lg p-2.5 text-xs text-gray-700 h-20 focus:outline-none"
+                            />
+                            <div className="flex justify-end gap-2">
+                              <button type="button" onClick={() => setFaqArEdit(null)} className="px-3 py-1.5 rounded-lg bg-gray-105 text-gray-700 text-[10px] font-bold uppercase tracking-wider">
+                                Cancel
+                              </button>
+                              <button type="button" onClick={handleSaveFAQArabic} className="px-3 py-1.5 rounded-lg bg-navy hover:bg-fire text-white text-[10px] font-bold uppercase tracking-wider transition-colors">
+                                Save Arabic
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="pt-2 border-t border-gray-100 flex items-start justify-between gap-3">
+                            {arText(arabicOf(faq), 'question') ? (
+                              <div dir="rtl" lang="ar" className="space-y-1 text-right">
+                                <p className="font-bold text-navy">{arText(arabicOf(faq), 'question')}</p>
+                                <p className="text-gray-450 leading-relaxed">{arText(arabicOf(faq), 'answer')}</p>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700">AR missing</span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setFaqArEdit({ id: faq.id, question: arText(arabicOf(faq), 'question'), answer: arText(arabicOf(faq), 'answer') })}
+                              className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-50 hover:bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-wider"
+                            >
+                              <Languages className="w-3 h-3" />
+                              Arabic
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))}
                     {faqs.length === 0 && (
@@ -2319,6 +2553,131 @@ export default function AdminPage() {
                   placeholder="Short marketing snippet..."
                 />
               </div>
+
+              <fieldset className="space-y-4 border border-gray-150 rounded-2xl p-4 bg-gray-55/40">
+                <legend className="px-2 flex items-center gap-1.5 text-[10px] uppercase font-bold text-navy tracking-wider">
+                  <Languages className="w-3.5 h-3.5" />
+                  Arabic (العربية)
+                </legend>
+                <p className="text-[10px] text-gray-450 leading-relaxed">
+                  Shown on the Arabic storefront. Any field left blank falls back to the English text. Lists take one item per line; specifications take one &quot;key: value&quot; per line.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label htmlFor="ar-name" className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Arabic name</label>
+                    <input
+                      id="ar-name"
+                      type="text"
+                      dir="rtl"
+                      lang="ar"
+                      value={productAr.name}
+                      onChange={(e) => setProductAr({ ...productAr, name: e.target.value })}
+                      className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm text-gray-700 focus:outline-none focus:border-fire"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="ar-product_type" className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Arabic product type</label>
+                    <input
+                      id="ar-product_type"
+                      type="text"
+                      dir="rtl"
+                      lang="ar"
+                      value={productAr.product_type}
+                      onChange={(e) => setProductAr({ ...productAr, product_type: e.target.value })}
+                      className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm text-gray-700 focus:outline-none focus:border-fire"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="ar-weight" className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Arabic weight</label>
+                    <input
+                      id="ar-weight"
+                      type="text"
+                      dir="rtl"
+                      lang="ar"
+                      value={productAr.weight}
+                      onChange={(e) => setProductAr({ ...productAr, weight: e.target.value })}
+                      className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm text-gray-700 focus:outline-none focus:border-fire"
+                    />
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <label htmlFor="ar-short_description" className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Arabic short description</label>
+                    <textarea
+                      id="ar-short_description"
+                      dir="rtl"
+                      lang="ar"
+                      value={productAr.short_description}
+                      onChange={(e) => setProductAr({ ...productAr, short_description: e.target.value })}
+                      className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm text-gray-700 h-24 focus:outline-none focus:border-fire"
+                    />
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <label htmlFor="ar-overview" className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Arabic overview</label>
+                    <textarea
+                      id="ar-overview"
+                      dir="rtl"
+                      lang="ar"
+                      value={productAr.overview}
+                      onChange={(e) => setProductAr({ ...productAr, overview: e.target.value })}
+                      className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm text-gray-700 h-24 focus:outline-none focus:border-fire"
+                    />
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <label htmlFor="ar-key_features" className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Key features (one per line)</label>
+                    <textarea
+                      id="ar-key_features"
+                      dir="rtl"
+                      lang="ar"
+                      value={productAr.key_features}
+                      onChange={(e) => setProductAr({ ...productAr, key_features: e.target.value })}
+                      className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm text-gray-700 h-24 focus:outline-none focus:border-fire"
+                    />
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <label htmlFor="ar-best_for" className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Best for (one per line)</label>
+                    <textarea
+                      id="ar-best_for"
+                      dir="rtl"
+                      lang="ar"
+                      value={productAr.best_for}
+                      onChange={(e) => setProductAr({ ...productAr, best_for: e.target.value })}
+                      className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm text-gray-700 h-24 focus:outline-none focus:border-fire"
+                    />
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <label htmlFor="ar-safety_notes" className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Safety notes (one per line)</label>
+                    <textarea
+                      id="ar-safety_notes"
+                      dir="rtl"
+                      lang="ar"
+                      value={productAr.safety_notes}
+                      onChange={(e) => setProductAr({ ...productAr, safety_notes: e.target.value })}
+                      className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm text-gray-700 h-24 focus:outline-none focus:border-fire"
+                    />
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <label htmlFor="ar-usage_areas" className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Usage areas (one per line)</label>
+                    <textarea
+                      id="ar-usage_areas"
+                      dir="rtl"
+                      lang="ar"
+                      value={productAr.usage_areas}
+                      onChange={(e) => setProductAr({ ...productAr, usage_areas: e.target.value })}
+                      className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm text-gray-700 h-24 focus:outline-none focus:border-fire"
+                    />
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <label htmlFor="ar-specifications" className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Specifications (key: value per line)</label>
+                    <textarea
+                      id="ar-specifications"
+                      dir="rtl"
+                      lang="ar"
+                      value={productAr.specifications}
+                      onChange={(e) => setProductAr({ ...productAr, specifications: e.target.value })}
+                      className="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm text-gray-700 h-24 focus:outline-none focus:border-fire"
+                    />
+                  </div>
+                </div>
+              </fieldset>
 
               <div className="space-y-1">
                 <label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Product Image URLs (Comma Separated)</label>

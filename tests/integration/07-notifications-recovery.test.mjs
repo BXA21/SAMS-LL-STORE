@@ -66,6 +66,13 @@ test('recovery endpoint: refuses without or with a wrong secret; accepts the rig
   assert.deepEqual(Object.keys(ok.body).sort(), ['callbacksProcessed', 'errors', 'notifications', 'refunds', 'reservationsReleased']);
 });
 
+test('recovery endpoint: Vercel Cron GET needs the bearer secret too', async () => {
+  const get = (headers) => fetch(`${APP_URL}/api/internal/recovery`, { headers });
+  assert.equal((await get({})).status, 401);
+  assert.equal((await get({ Authorization: 'Bearer wrong-secret-wrong-secret-wrong-secret' })).status, 401);
+  assert.equal((await get({ Authorization: `Bearer ${RECOVERY_SECRET}` })).status, 200);
+});
+
 test('recovery worker finishes a stranded callback without any customer revisiting the site', async () => {
   const o = await newPaidOrder('stranded');
   sql(`alter function public.process_paymob_callback(uuid) rename to process_paymob_callback_disabled;`);

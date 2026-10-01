@@ -16,6 +16,8 @@ export function getSupabaseAdmin(): SupabaseClient | null {
   if (!config) return null;
   client = createClient(config.url, config.serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    // Payment and order state must always be read live, never from Next's data cache.
+    global: { fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }) },
   });
   return client;
 }

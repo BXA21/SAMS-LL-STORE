@@ -66,7 +66,7 @@ export async function enforceRateLimit(
       level: 'error',
       bucket,
       configured: Boolean(process.env.CLIENT_IP_HEADER),
-      hint: 'Trusted client IP header missing or invalid; set CLIENT_IP_HEADER=x-nf-client-connection-ip on Netlify',
+      hint: 'Trusted client IP header missing or invalid; on Vercel it is x-vercel-forwarded-for (inferred from VERCEL=1), elsewhere set CLIENT_IP_HEADER',
     });
   }
 

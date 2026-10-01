@@ -4,6 +4,9 @@ import React, { useEffect, useState } from 'react';
 import { Star, Quote } from 'lucide-react';
 import { dbService } from '@/services/dbService';
 import { Testimonial } from '@/types/database';
+import { useLocale, useMessages } from '@/i18n/I18nProvider';
+import { homeMessages } from '@/i18n/messages/home';
+import { localizeTestimonial } from '@/i18n/content';
 
 interface TestimonialsProps {
   /* Supplied by the server so the section is in the HTML without JavaScript. */
@@ -12,6 +15,8 @@ interface TestimonialsProps {
 
 export default function Testimonials({ initialTestimonials }: TestimonialsProps) {
   const [testimonials, setTestimonials] = useState<Testimonial[]>(initialTestimonials);
+  const locale = useLocale();
+  const t = useMessages(homeMessages).testimonials;
 
   useEffect(() => {
     let cancelled = false;
@@ -37,34 +42,34 @@ export default function Testimonials({ initialTestimonials }: TestimonialsProps)
           <div className="flex items-center justify-center gap-2">
             <span className="h-0.5 w-6 bg-fire" />
             <span className="text-xs uppercase tracking-widest font-bold text-navy">
-              Testimonials
+              {t.eyebrow}
             </span>
             <span className="h-0.5 w-6 bg-fire" />
           </div>
           <h2 className="font-display text-4xl sm:text-5xl font-bold uppercase tracking-tight text-navy">
-            Client Success Stories
+            {t.title}
           </h2>
           <p className="text-sm sm:text-base text-gray-500 font-light leading-relaxed">
-            Here is what safety managers, homeowners, and facility directors in Oman say about SAMS fire solutions.
+            {t.intro}
           </p>
         </div>
 
         {/* Testimonials Grid */}
         {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {testimonials.map((test) => (
+            {testimonials.map((raw) => localizeTestimonial(raw, locale)).map((test) => (
               <div 
                 key={test.id}
                 className="bg-white p-8 rounded-xl border border-gray-100 hover:shadow-lg transition-all duration-300 relative flex flex-col justify-between"
               >
                 {/* Quote Icon Background */}
-                <div className="absolute top-6 right-8 text-gray-100">
+                <div className="absolute top-6 end-8 text-gray-100" aria-hidden="true">
                   <Quote className="w-12 h-12" />
                 </div>
 
                 <div className="space-y-4 z-10">
                   {/* Rating Stars */}
-                  <div className="flex gap-1">
+                  <div className="flex gap-1" role="img" aria-label={t.rating(test.rating)}>
                     {Array.from({ length: test.rating }).map((_, starIdx) => (
                       <Star key={starIdx} className="w-4 h-4 fill-safety text-safety" />
                     ))}
@@ -72,7 +77,7 @@ export default function Testimonials({ initialTestimonials }: TestimonialsProps)
 
                   {/* Message */}
                   <p className="text-sm text-gray-600 font-light italic leading-relaxed">
-                    “{test.message}”
+                    {locale === 'ar' ? `«${test.message}»` : `“${test.message}”`}
                   </p>
                 </div>
 

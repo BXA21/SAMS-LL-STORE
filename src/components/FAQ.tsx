@@ -1,9 +1,12 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, Plus, Minus } from 'lucide-react';
+import { Plus, Minus } from 'lucide-react';
 import { dbService } from '@/services/dbService';
 import { FAQ } from '@/types/database';
+import { useLocale, useMessages } from '@/i18n/I18nProvider';
+import { homeMessages } from '@/i18n/messages/home';
+import { localizeFaq } from '@/i18n/content';
 
 interface FAQComponentProps {
   /* Supplied by the server so the questions are in the HTML without JavaScript. */
@@ -13,6 +16,8 @@ interface FAQComponentProps {
 export default function FAQComponent({ initialFaqs }: FAQComponentProps) {
   const [faqs, setFaqs] = useState<FAQ[]>(initialFaqs);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
+  const locale = useLocale();
+  const t = useMessages(homeMessages).faq;
 
   useEffect(() => {
     let cancelled = false;
@@ -46,22 +51,23 @@ export default function FAQComponent({ initialFaqs }: FAQComponentProps) {
           <div className="flex items-center justify-center gap-2">
             <span className="h-0.5 w-6 bg-fire" />
             <span className="text-xs uppercase tracking-widest font-bold text-navy">
-              Got Questions?
+              {t.eyebrow}
             </span>
             <span className="h-0.5 w-6 bg-fire" />
           </div>
           <h2 className="font-display text-4xl sm:text-5xl font-bold uppercase tracking-tight text-navy">
-            Get Answers to Your Questions
+            {t.title}
           </h2>
           <p className="text-sm sm:text-base text-gray-500 font-light leading-relaxed">
-            Have questions about how SAMS automatic fire extinguisher balls and pots operate? Find key answers here.
+            {t.intro}
           </p>
         </div>
 
         {/* FAQ list */}
         {
           <div className="space-y-4">
-            {faqs.map((faq, idx) => {
+            {faqs.map((raw, idx) => {
+              const faq = localizeFaq(raw, locale);
               const isOpen = openIndex === idx;
               return (
                 <div 
@@ -75,7 +81,9 @@ export default function FAQComponent({ initialFaqs }: FAQComponentProps) {
                   {/* Question trigger button */}
                   <button
                     onClick={() => toggleFAQ(idx)}
-                    className="w-full text-left p-6 flex justify-between items-center gap-4 focus:outline-none"
+                    aria-expanded={isOpen}
+                    aria-controls={`faq-answer-${faq.id}`}
+                    className="w-full text-start p-6 flex justify-between items-center gap-4 focus:outline-none"
                   >
                     <h3 className="font-display text-base font-bold uppercase tracking-wide text-navy">
                       {faq.question}
@@ -87,6 +95,7 @@ export default function FAQComponent({ initialFaqs }: FAQComponentProps) {
 
                   {/* Answer content (expand/collapse) */}
                   <div 
+                    id={`faq-answer-${faq.id}`}
                     className={`overflow-hidden transition-all duration-300 ${
                       isOpen ? 'max-h-[500px] border-t border-gray-150' : 'max-h-0'
                     }`}

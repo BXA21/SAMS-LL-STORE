@@ -67,3 +67,14 @@ test('normalizeCallback: exact integer minor units and strict ids', () => {
   assert.equal(normalizeCallback({ ...obj, id: 'abc' }), null);
   assert.equal(normalizeCallback({ ...obj, order: { id: '12;drop', merchant_order_id: 'x' } })!.providerOrderId, null);
 });
+
+test('Paymob keys must match the deployment environment', async () => {
+  const { paymobModeProblem } = await import('../../src/lib/serverEnv.ts');
+  assert.equal(paymobModeProblem('omn_sk_live_a', 'omn_pk_live_b', 'production'), null);
+  assert.equal(paymobModeProblem('omn_sk_test_a', 'omn_pk_test_b', 'preview'), null);
+  assert.equal(paymobModeProblem('omn_sk_test_a', 'omn_pk_test_b', undefined), null);
+  assert.match(paymobModeProblem('omn_sk_test_a', 'omn_pk_test_b', 'production') ?? '', /production/);
+  assert.match(paymobModeProblem('omn_sk_live_a', 'omn_pk_live_b', 'preview') ?? '', /preview/);
+  assert.match(paymobModeProblem('omn_sk_live_a', 'omn_pk_test_b', 'production') ?? '', /different modes/);
+  assert.equal(paymobModeProblem('sk_unrecognised', 'pk_unrecognised', 'production'), null);
+});

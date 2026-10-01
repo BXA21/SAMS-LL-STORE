@@ -30,6 +30,34 @@ const paymobSchema = z.object({
 
 export type PaymobConfig = z.infer<typeof paymobSchema>;
 
+type KeyMode = 'live' | 'test' | 'unknown';
+
+/** Paymob keys carry their mode in the prefix, e.g. omn_sk_test_… / omn_sk_live_…. */
+export function paymobKeyMode(key: string): KeyMode {
+  if (/_test_/i.test(key)) return 'test';
+  if (/_live_/i.test(key)) return 'live';
+  return 'unknown';
+}
+
+/**
+ * Refuses key sets that are in the wrong mode for where they run: test keys on
+ * the production deployment (customers would "pay" without being charged),
+ * live keys on a Vercel preview (testing would charge real cards), or a secret
+ * and public key from different modes. Unrecognised prefixes are allowed so a
+ * format change at Paymob cannot silently switch checkout off.
+ */
+export function paymobModeProblem(secretKey: string, publicKey: string, vercelEnv = process.env.VERCEL_ENV): string | null {
+  const secret = paymobKeyMode(secretKey);
+  const pub = paymobKeyMode(publicKey);
+  if (secret !== 'unknown' && pub !== 'unknown' && secret !== pub) return 'secret and public keys are from different modes';
+  const mode = secret !== 'unknown' ? secret : pub;
+  if (vercelEnv === 'production' && mode === 'test') return 'test keys configured on the production deployment';
+  if (vercelEnv === 'preview' && mode === 'live') return 'live keys configured on a preview deployment';
+  return null;
+}
+
+let reportedModeProblem = false;
+
 export function getSupabaseServerConfig() {
   const parsed = supabaseSchema.safeParse({
     url: process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -52,7 +80,16 @@ export function getPaymobConfig(): PaymobConfig | null {
     integrationIds,
     callbackBaseUrl: process.env.PAYMOB_CALLBACK_BASE_URL || undefined,
   });
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success) return null;
+  const problem = paymobModeProblem(parsed.data.secretKey, parsed.data.publicKey);
+  if (problem) {
+    if (!reportedModeProblem) {
+      reportedModeProblem = true;
+      process.stderr.write(`${JSON.stringify({ ts: new Date().toISOString(), event: 'paymob_key_mode_rejected', level: 'error', problem })}\n`);
+    }
+    return null;
+  }
+  return parsed.data;
 }
 
 /** Online card payment is offered only when both the database and Paymob are fully configured. */

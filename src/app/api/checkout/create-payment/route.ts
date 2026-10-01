@@ -10,6 +10,8 @@ import { cardCheckoutSchema, checkoutKeySchema } from '@/lib/validation';
 import { createOrder } from '@/lib/orderFactory';
 
 export const runtime = 'nodejs';
+// Hard cap on billed execution time if a downstream call hangs.
+export const maxDuration = 20;
 export const dynamic = 'force-dynamic';
 
 interface ItemSnapshot {

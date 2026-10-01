@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { Locale } from '@/i18n/config';
+import { localizeProduct } from '@/i18n/content';
+import type { Product } from '@/types/database';
 
 export interface CartItem {
   productId: string;
@@ -11,6 +14,34 @@ export interface CartItem {
   currency: string;
   image: string;
   quantity: number;
+  /** Arabic display copy captured when added, so switching language never needs a refetch. */
+  nameAr?: string;
+  weightAr?: string;
+}
+
+/** Builds a cart line from a raw (English-column) product, carrying its Arabic copy too. */
+export function cartItemFromProduct(product: Product): Omit<CartItem, 'quantity'> {
+  const ar = localizeProduct(product, 'ar');
+  return {
+    productId: product.id,
+    name: product.name,
+    slug: product.slug,
+    make: product.make,
+    weight: product.weight,
+    price: product.price,
+    currency: product.currency,
+    image: product.images[0] || '/hero_bg.png',
+    nameAr: ar.name,
+    weightAr: ar.weight,
+  };
+}
+
+export function cartItemName(item: CartItem, locale: Locale): string {
+  return locale === 'ar' && item.nameAr ? item.nameAr : item.name;
+}
+
+export function cartItemWeight(item: CartItem, locale: Locale): string {
+  return locale === 'ar' && item.weightAr ? item.weightAr : item.weight;
 }
 
 interface CartState {

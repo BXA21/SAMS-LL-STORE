@@ -5,6 +5,8 @@ import { getPaymobConfig } from '@/lib/serverEnv';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
+// Hard cap on billed execution time if a downstream call hangs.
+export const maxDuration = 20;
 export const dynamic = 'force-dynamic';
 
 /**

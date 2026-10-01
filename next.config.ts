@@ -41,6 +41,43 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Branded bilingual 404 (app/global-not-found.tsx): the store and the staff
+  // dashboard are separate root layouts, so there is no single root not-found.
+  experimental: {
+    globalNotFound: true,
+  },
+  // Only local product photos are optimised (no remote hosts are allowed), in
+  // one format and a short size ladder, cached for a month so optimisation runs
+  // once per variant rather than per visitor.
+  images: {
+    formats: ["image/webp"],
+    deviceSizes: [640, 828, 1080, 1920],
+    imageSizes: [80, 160, 320],
+    minimumCacheTTL: 2678400,
+  },
+  /*
+   * Arabic is the default language and is served at the bare paths; English
+   * lives under /en. Both are prerendered under app/[lang], and these rules run
+   * in the platform router, so choosing a language costs no server compute.
+   * afterFiles runs after public files and API routes are matched, so assets,
+   * /api and /admin are never rewritten.
+   */
+  async redirects() {
+    return [
+      { source: "/ar", destination: "/", permanent: true },
+      { source: "/ar/:path*", destination: "/:path*", permanent: true },
+    ];
+  },
+  async rewrites() {
+    return {
+      beforeFiles: [],
+      afterFiles: [
+        { source: "/", destination: "/ar" },
+        { source: "/:path((?!en(?:/|$)|ar(?:/|$)|api(?:/|$)|admin(?:/|$)|_next/).+)", destination: "/ar/:path" },
+      ],
+      fallback: [],
+    };
+  },
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },

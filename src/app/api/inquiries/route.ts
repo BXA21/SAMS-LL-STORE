@@ -3,6 +3,8 @@ import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { inquirySchema } from '@/lib/validation';
 
 export const runtime = 'nodejs';
+// Hard cap on billed execution time if a downstream call hangs.
+export const maxDuration = 10;
 export const dynamic = 'force-dynamic';
 
 /** Contact / product enquiry form. */

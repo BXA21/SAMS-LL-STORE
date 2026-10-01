@@ -3,11 +3,13 @@ import { test } from 'node:test';
 import { clientIdentity, normalizeIp, rateLimitKey, trustedClientIpHeader } from '../../src/lib/clientIp.ts';
 
 const NETLIFY = { NETLIFY: 'true', NODE_ENV: 'production' } as unknown as NodeJS.ProcessEnv;
+const VERCEL = { VERCEL: '1', NODE_ENV: 'production' } as unknown as NodeJS.ProcessEnv;
 const PROD_UNCONFIGURED = { NODE_ENV: 'production' } as unknown as NodeJS.ProcessEnv;
 const headers = (h: Record<string, string>) => new Headers(h);
 
 test('trusted header selection', () => {
   assert.equal(trustedClientIpHeader(NETLIFY), 'x-nf-client-connection-ip');
+  assert.equal(trustedClientIpHeader(VERCEL), 'x-vercel-forwarded-for');
   assert.equal(trustedClientIpHeader({ CLIENT_IP_HEADER: 'X-NF-Client-Connection-IP' } as unknown as NodeJS.ProcessEnv), 'x-nf-client-connection-ip');
   assert.equal(trustedClientIpHeader({ CLIENT_IP_HEADER: 'bad header!' } as unknown as NodeJS.ProcessEnv), null);
   assert.equal(trustedClientIpHeader(PROD_UNCONFIGURED), null);
@@ -29,6 +31,13 @@ test('only the trusted header counts; spoofable headers are ignored', () => {
   const id = clientIdentity(headers({ 'x-nf-client-connection-ip': '203.0.113.9', 'x-forwarded-for': '1.1.1.1', 'x-real-ip': '2.2.2.2' }), NETLIFY);
   assert.deepEqual(id, { source: 'trusted-header', value: '203.0.113.9' });
   const spoofOnly = clientIdentity(headers({ 'x-forwarded-for': '1.1.1.1' }), NETLIFY);
+  assert.deepEqual(spoofOnly, { source: 'unattributed', value: 'unattributed' });
+});
+
+test('on Vercel only x-vercel-forwarded-for counts', () => {
+  const id = clientIdentity(headers({ 'x-vercel-forwarded-for': '203.0.113.7', 'x-forwarded-for': '1.1.1.1', 'x-real-ip': '2.2.2.2' }), VERCEL);
+  assert.deepEqual(id, { source: 'trusted-header', value: '203.0.113.7' });
+  const spoofOnly = clientIdentity(headers({ 'x-forwarded-for': '1.1.1.1', 'x-real-ip': '2.2.2.2' }), VERCEL);
   assert.deepEqual(spoofOnly, { source: 'unattributed', value: 'unattributed' });
 });
 

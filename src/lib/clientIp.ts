@@ -5,8 +5,11 @@ import { isIP } from 'node:net';
  * Rate-limit identity for a request.
  *
  * Trust boundary: only ONE header is read, and only when the deployment says
- * which header its edge sets. On Netlify that is `x-nf-client-connection-ip`
- * (configure CLIENT_IP_HEADER, or it is inferred from NETLIFY=true).
+ * which header its edge sets: CLIENT_IP_HEADER when configured, otherwise
+ * inferred from the platform. On Vercel that is `x-vercel-forwarded-for`
+ * (Vercel overwrites it with the real client address and, unlike
+ * X-Forwarded-For, it survives any proxy placed in front); on Netlify it is
+ * `x-nf-client-connection-ip`.
  * X-Forwarded-For, X-Real-IP and every other client-controllable header are
  * ignored, so a caller cannot pick a fresh identity per request.
  *
@@ -29,6 +32,7 @@ export interface ClientIdentity {
 export function trustedClientIpHeader(env: NodeJS.ProcessEnv = process.env): string | null {
   const configured = env.CLIENT_IP_HEADER?.trim().toLowerCase();
   if (configured) return HEADER_NAME.test(configured) ? configured : null;
+  if (env.VERCEL === '1') return 'x-vercel-forwarded-for';
   if (env.NETLIFY === 'true') return 'x-nf-client-connection-ip';
   return null;
 }

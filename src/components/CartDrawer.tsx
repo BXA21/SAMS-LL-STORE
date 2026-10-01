@@ -5,8 +5,11 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { X, Plus, Minus, Trash2, ShoppingBag, ArrowRight } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useCartStore } from '@/store/cartStore';
+import { cartItemName, cartItemWeight, useCartStore } from '@/store/cartStore';
 import { useHydrated } from '@/lib/useHydrated';
+import { useLocale, useLocalePath, useMessages } from '@/i18n/I18nProvider';
+import { siteMessages } from '@/i18n/messages/site';
+import { formatPrice } from '@/i18n/format';
 
 export default function CartDrawer() {
   const { 
@@ -20,6 +23,11 @@ export default function CartDrawer() {
   } = useCartStore();
 
   const mounted = useHydrated();
+  const locale = useLocale();
+  const href = useLocalePath();
+  const t = useMessages(siteMessages).cart;
+  // The drawer enters from the reading-end edge: right in English, left in Arabic.
+  const offscreen = locale === 'ar' ? '-100%' : '100%';
 
   // Prevent background scroll when cart drawer is open
   useEffect(() => {
@@ -50,27 +58,30 @@ export default function CartDrawer() {
 
           {/* Drawer panel */}
           <motion.div
-            initial={{ x: '100%' }}
+            initial={{ x: offscreen }}
             animate={{ x: 0 }}
-            exit={{ x: '100%' }}
+            exit={{ x: offscreen }}
             transition={{ type: 'tween', duration: 0.3 }}
-            className="fixed right-0 top-0 bottom-0 w-full sm:w-[450px] bg-white shadow-2xl z-50 flex flex-col h-full text-gray-900"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t.title}
+            className="fixed end-0 top-0 bottom-0 w-full sm:w-[450px] bg-white shadow-2xl z-50 flex flex-col h-full text-gray-900"
           >
             {/* Header */}
             <div className="p-6 border-b border-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ShoppingBag className="w-5 h-5 text-fire" />
                 <h2 className="font-display text-lg uppercase tracking-wider font-bold">
-                  Your Shopping Cart
+                  {t.title}
                 </h2>
                 <span className="bg-gray-100 text-gray-700 text-xs px-2.5 py-0.5 rounded-full font-semibold">
-                  {getItemCount()} items
+                  {t.items(getItemCount())}
                 </span>
               </div>
               <button 
                 onClick={() => setIsOpen(false)}
                 className="p-1.5 rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-900 transition-colors"
-                aria-label="Close Cart"
+                aria-label={t.close}
               >
                 <X className="w-5 h-5" />
               </button>
@@ -85,17 +96,17 @@ export default function CartDrawer() {
                   </div>
                   <div className="space-y-1">
                     <p className="font-display text-base font-semibold uppercase tracking-wider">
-                      Your cart is empty
+                      {t.emptyTitle}
                     </p>
                     <p className="text-sm text-gray-500 max-w-[250px]">
-                      Add some automatic fire safety products to get started.
+                      {t.emptyBody}
                     </p>
                   </div>
                   <button
                     onClick={() => setIsOpen(false)}
                     className="bg-navy hover:bg-navy/90 text-white text-xs uppercase tracking-widest font-semibold px-6 py-3 rounded-md transition-colors"
                   >
-                    Start Shopping
+                    {t.startShopping}
                   </button>
                 </div>
               ) : (
@@ -105,7 +116,7 @@ export default function CartDrawer() {
                     <div className="relative w-20 h-20 bg-gray-50 rounded-lg overflow-hidden border border-gray-100 shrink-0">
                       <Image 
                         src={item.image} 
-                        alt={item.name}
+                        alt={cartItemName(item, locale)}
                         fill
                         className="object-cover"
                       />
@@ -115,12 +126,12 @@ export default function CartDrawer() {
                     <div className="flex-1 flex flex-col justify-between">
                       <div className="space-y-1">
                         <h3 className="font-display text-sm font-semibold tracking-wide uppercase hover:text-fire transition-colors line-clamp-1">
-                          <Link href={`/catalog/${item.slug}`} onClick={() => setIsOpen(false)}>
-                            {item.name}
+                          <Link href={href(`/catalog/${item.slug}`)} onClick={() => setIsOpen(false)}>
+                            {cartItemName(item, locale)}
                           </Link>
                         </h3>
                         <p className="text-xs text-gray-500">
-                          Brand: {item.make} | Weight: {item.weight}
+                          {t.brandWeight(item.make, cartItemWeight(item, locale))}
                         </p>
                       </div>
 
@@ -130,7 +141,7 @@ export default function CartDrawer() {
                           <button
                             onClick={() => updateQuantity(item.productId, item.quantity - 1)}
                             className="p-1 hover:bg-gray-50 text-gray-500 hover:text-gray-900 transition-colors"
-                            aria-label="Decrease quantity"
+                            aria-label={t.decrease}
                           >
                             <Minus className="w-3.5 h-3.5" />
                           </button>
@@ -138,7 +149,7 @@ export default function CartDrawer() {
                           <button
                             onClick={() => updateQuantity(item.productId, item.quantity + 1)}
                             className="p-1 hover:bg-gray-50 text-gray-500 hover:text-gray-900 transition-colors"
-                            aria-label="Increase quantity"
+                            aria-label={t.increase}
                           >
                             <Plus className="w-3.5 h-3.5" />
                           </button>
@@ -146,12 +157,12 @@ export default function CartDrawer() {
                         
                         <div className="flex items-center gap-3">
                           <span className="text-xs font-bold text-navy">
-                            {(item.price * item.quantity).toFixed(3)} {item.currency}
+                            {formatPrice(item.price * item.quantity, locale, item.currency)}
                           </span>
                           <button
                             onClick={() => removeItem(item.productId)}
                             className="p-1.5 rounded-full hover:bg-red-50 text-gray-400 hover:text-fire transition-colors"
-                            aria-label="Remove item"
+                            aria-label={t.remove}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -168,32 +179,32 @@ export default function CartDrawer() {
               <div className="p-6 border-t border-gray-100 bg-gray-50 space-y-4">
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-sm text-gray-600">
-                    <span>Subtotal</span>
-                    <span>{getTotalAmount().toFixed(3)} OMR</span>
+                    <span>{t.subtotal}</span>
+                    <span>{formatPrice(getTotalAmount(), locale)}</span>
                   </div>
                   <div className="flex justify-between text-base font-bold text-gray-900">
-                    <span>Estimated Total</span>
-                    <span>{getTotalAmount().toFixed(3)} OMR</span>
+                    <span>{t.estimatedTotal}</span>
+                    <span>{formatPrice(getTotalAmount(), locale)}</span>
                   </div>
                   <p className="text-[10px] text-gray-500 text-center pt-1 leading-normal">
-                    * Final order validation and secure Paymob invoice calculation takes place during checkout.
+                    {t.finalNote}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 gap-2 pt-2">
                   <Link 
-                    href="/checkout"
+                    href={href('/checkout')}
                     onClick={() => setIsOpen(false)}
                     className="w-full bg-fire hover:bg-fire/90 text-white py-3 rounded-md text-xs uppercase tracking-widest font-bold flex items-center justify-center gap-2 transition-all group"
                   >
-                    Proceed to Checkout
-                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                    {t.checkout}
+                    <ArrowRight className="w-4 h-4 rtl:rotate-180 group-hover:translate-x-1 rtl:group-hover:-translate-x-1 transition-transform" />
                   </Link>
                   <button 
                     onClick={() => setIsOpen(false)}
                     className="w-full text-center text-xs text-navy hover:text-fire font-semibold uppercase tracking-wider py-2 transition-colors"
                   >
-                    Continue Shopping
+                    {t.continueShopping}
                   </button>
                 </div>
               </div>

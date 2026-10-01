@@ -1,29 +1,17 @@
 import React from 'react';
 import { ShieldCheck, Heart, Award, TrendingUp } from 'lucide-react';
+import type { Locale } from '@/i18n/config';
+import { homeMessages } from '@/i18n/messages/home';
 
-export default function MissionVision() {
-  const values = [
-    {
-      icon: <ShieldCheck className="w-6 h-6 text-white" />,
-      title: "Safety",
-      description: "Our primary objective is protecting lives and assets through reliable fire safety products."
-    },
-    {
-      icon: <Heart className="w-6 h-6 text-white" />,
-      title: "Integrity",
-      description: "We are dedicated to honest consulting, transparent testing data, and premium materials."
-    },
-    {
-      icon: <Award className="w-6 h-6 text-white" />,
-      title: "Commitment",
-      description: "We guarantee 5 years of active readiness for all automatic fire extinguisher solutions."
-    },
-    {
-      icon: <TrendingUp className="w-6 h-6 text-white" />,
-      title: "Growth",
-      description: "Striving to expand life-saving product accessibility to every home and enterprise in Oman."
-    }
+export default function MissionVision({ locale }: { locale: Locale }) {
+  const t = homeMessages[locale].mission;
+  const icons = [
+    <ShieldCheck key="safety" className="w-6 h-6 text-white" />,
+    <Heart key="integrity" className="w-6 h-6 text-white" />,
+    <Award key="commitment" className="w-6 h-6 text-white" />,
+    <TrendingUp key="growth" className="w-6 h-6 text-white" />,
   ];
+  const values = t.values.map((value, i) => ({ ...value, icon: icons[i] }));
 
   return (
     <section className="py-24 bg-navy text-white">
@@ -34,14 +22,14 @@ export default function MissionVision() {
             <div className="flex items-center gap-2">
               <span className="h-0.5 w-6 bg-fire" />
               <span className="text-xs uppercase tracking-widest font-bold text-fire-400">
-                Our Foundation
+                {t.missionEyebrow}
               </span>
             </div>
             <h2 className="font-display text-3xl sm:text-4xl font-bold uppercase tracking-tight text-white">
-              Our Mission
+              {t.missionTitle}
             </h2>
             <p className="text-sm sm:text-base font-light text-gray-350 leading-relaxed">
-              Our mission is to make fire safety easier, hassle-free, and accessible to every citizen and organization in Oman. SAMS aims to reduce fire accidents, save lives, protect properties, and simplify access to modern fire safety solutions.
+              {t.missionBody}
             </p>
           </div>
 
@@ -50,14 +38,14 @@ export default function MissionVision() {
             <div className="flex items-center gap-2">
               <span className="h-0.5 w-6 bg-fire" />
               <span className="text-xs uppercase tracking-widest font-bold text-fire-400">
-                Our Outlook
+                {t.visionEyebrow}
               </span>
             </div>
             <h2 className="font-display text-3xl sm:text-4xl font-bold uppercase tracking-tight text-white">
-              Our Vision
+              {t.visionTitle}
             </h2>
             <p className="text-sm sm:text-base font-light text-gray-350 leading-relaxed">
-              Our vision is to become a trusted fire safety partner by delivering advanced products that support safer homes, safer businesses, and safer communities throughout the Sultanate of Oman.
+              {t.visionBody}
             </p>
           </div>
         </div>
@@ -65,7 +53,7 @@ export default function MissionVision() {
         {/* 4 Value Cards Grid */}
         <div className="mt-16">
           <h3 className="font-display text-xl uppercase tracking-widest font-semibold text-center mb-10 text-gray-300">
-            Our Core Values
+            {t.valuesTitle}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {values.map((val, idx) => (
