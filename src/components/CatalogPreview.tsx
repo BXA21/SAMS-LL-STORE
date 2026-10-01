@@ -11,6 +11,8 @@ import { useLocale, useLocalePath, useMessages } from '@/i18n/I18nProvider';
 import { homeMessages } from '@/i18n/messages/home';
 import { localizeProduct } from '@/i18n/content';
 import { currencyLabel } from '@/i18n/format';
+import { catalogMessages } from '@/i18n/messages/catalog';
+import { useProductAvailability } from '@/lib/useAvailability';
 
 interface CatalogPreviewProps {
   /* Supplied by the server so the featured products are in the HTML. */
@@ -23,6 +25,8 @@ export default function CatalogPreview({ initialProducts }: CatalogPreviewProps)
   const locale = useLocale();
   const href = useLocalePath();
   const t = useMessages(homeMessages).catalog;
+  const soldOut = useMessages(catalogMessages).detail.outOfStock;
+  const availability = useProductAvailability();
 
   /*
    * Refresh after mount purely to pick up admin edits stored in this
@@ -152,14 +156,20 @@ export default function CatalogPreview({ initialProducts }: CatalogPreviewProps)
                       >
                         {t.details}
                       </Link>
-                      <button 
-                        onClick={(e) => handleAddToCart(e, raw)}
-                        aria-label={t.addLabel(prod.name)}
-                        className="bg-fire hover:bg-fire/90 text-white text-[10px] uppercase tracking-widest font-bold px-3 py-2 rounded-md flex items-center gap-1 transition-all shadow-md active:scale-95"
-                      >
-                        <ShoppingCart className="w-3.5 h-3.5" />
-                        {t.add}
-                      </button>
+                      {availability[raw.slug] === 'out_of_stock' ? (
+                        <span className="bg-white/10 text-gray-300 text-[10px] uppercase tracking-widest font-bold px-3 py-2 rounded-md border border-white/20">
+                          {soldOut}
+                        </span>
+                      ) : (
+                        <button 
+                          onClick={(e) => handleAddToCart(e, raw)}
+                          aria-label={t.addLabel(prod.name)}
+                          className="bg-fire hover:bg-fire/90 text-white text-[10px] uppercase tracking-widest font-bold px-3 py-2 rounded-md flex items-center gap-1 transition-all shadow-md active:scale-95"
+                        >
+                          <ShoppingCart className="w-3.5 h-3.5" />
+                          {t.add}
+                        </button>
+                      )}
                     </div>
                   </div>
 

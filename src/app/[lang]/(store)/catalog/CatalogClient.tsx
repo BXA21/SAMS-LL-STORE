@@ -21,6 +21,7 @@ import { useLocale, useLocalePath, useMessages } from '@/i18n/I18nProvider';
 import { localizeCategory, localizeProduct } from '@/i18n/content';
 import { formatPrice } from '@/i18n/format';
 import { catalogMessages } from '@/i18n/messages/catalog';
+import { useProductAvailability } from '@/lib/useAvailability';
 
 interface CatalogClientProps {
   /*
@@ -43,7 +44,7 @@ export default function CatalogClient({
   const router = useRouter();
   const locale = useLocale();
   const href = useLocalePath();
-  const { list: t, card: tc, breadcrumb: tb } = useMessages(catalogMessages);
+  const { list: t, card: tc, breadcrumb: tb, detail: td } = useMessages(catalogMessages);
 
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [categories, setCategories] = useState<Category[]>(initialCategories);
@@ -65,6 +66,7 @@ export default function CatalogClient({
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
 
   const addItem = useCartStore((state) => state.addItem);
+  const availability = useProductAvailability();
 
   /*
    * Refresh from dbService after mount. The server already supplied a full
@@ -475,7 +477,8 @@ export default function CatalogClient({
                         </Link>
                         <button
                           onClick={(e) => handleAddToCart(e, raw)}
-                          className="bg-white p-3 rounded-full shadow-md text-navy hover:text-fire hover:scale-110 transition-all"
+                          disabled={availability[raw.slug] === 'out_of_stock'}
+                          className="disabled:hidden bg-white p-3 rounded-full shadow-md text-navy hover:text-fire hover:scale-110 transition-all"
                           title={t.addToCart}
                           aria-label={`${t.addToCart}: ${prod.name}`}
                         >
@@ -517,14 +520,20 @@ export default function CatalogClient({
                           </div>
                         </div>
 
-                        <button
-                          onClick={(e) => handleAddToCart(e, raw)}
-                          aria-label={`${t.addToCart}: ${prod.name}`}
-                          className="bg-navy hover:bg-fire hover:scale-105 text-white text-[10px] uppercase tracking-widest font-bold px-4 py-2.5 rounded-md flex items-center gap-1.5 transition-all shadow-md"
-                        >
-                          <ShoppingCart className="w-3.5 h-3.5" aria-hidden="true" />
-                          {t.add}
-                        </button>
+                        {availability[raw.slug] === 'out_of_stock' ? (
+                          <span className="bg-gray-100 text-gray-500 text-[10px] uppercase tracking-widest font-bold px-4 py-2.5 rounded-md">
+                            {td.outOfStock}
+                          </span>
+                        ) : (
+                          <button
+                            onClick={(e) => handleAddToCart(e, raw)}
+                            aria-label={`${t.addToCart}: ${prod.name}`}
+                            className="bg-navy hover:bg-fire hover:scale-105 text-white text-[10px] uppercase tracking-widest font-bold px-4 py-2.5 rounded-md flex items-center gap-1.5 transition-all shadow-md"
+                          >
+                            <ShoppingCart className="w-3.5 h-3.5" aria-hidden="true" />
+                            {t.add}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
