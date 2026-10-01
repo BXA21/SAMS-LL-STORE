@@ -10,7 +10,9 @@ import { NextResponse, type NextRequest } from 'next/server';
  * row-level security, so knowing the address grants nothing by itself.
  */
 
-const NOT_FOUND = '/ar/__not-found';
+// Bare path: the store's language rewrite turns it into the branded 404 (an
+// /ar/... target would trip the /ar -> / canonical redirect instead).
+const NOT_FOUND = '/__not-found';
 
 function sameKey(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
