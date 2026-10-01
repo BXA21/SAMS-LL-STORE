@@ -1,3 +1,6 @@
+/** Staff-edited localized copy, e.g. { ar: { name: '…' } }. Shape-checked in src/i18n/content.ts. */
+export type ContentTranslations = { ar?: Record<string, unknown> };
+
 export interface Category {
   id: string;
   name: string;
@@ -5,6 +8,7 @@ export interface Category {
   description?: string;
   image_url?: string;
   is_active: boolean;
+  translations?: ContentTranslations;
   created_at: string;
   updated_at: string;
 }
@@ -32,6 +36,7 @@ export interface Product {
   usage_areas: string[];
   is_featured: boolean;
   is_active: boolean;
+  translations?: ContentTranslations;
   created_at: string;
   updated_at: string;
 }
@@ -53,6 +58,10 @@ export interface Inquiry {
 
 export interface Order {
   id: string;
+  order_number: string;
+  order_type: 'online' | 'quotation';
+  staff_notes?: string | null;
+  paid_at?: string | null;
   customer_name: string;
   email: string;
   phone: string;
@@ -62,7 +71,9 @@ export interface Order {
   total_amount: number;
   currency: string;
   status: 'pending_payment' | 'pending' | 'paid' | 'completed' | 'delivered' | 'failed' | 'cancelled' | 'refunded' | 'manual_inquiry' | 'placement' | 'processing' | 'shipping';
-  payment_status: 'initiated' | 'pending' | 'successful' | 'failed' | 'cancelled' | 'refunded' | 'unpaid' | 'verified';
+  payment_status: 'initiated' | 'pending' | 'successful' | 'partially_refunded' | 'refunded' | 'voided' | 'failed' | 'cancelled' | 'unpaid' | 'verified';
+  refunded_minor?: number;
+  inventory_state?: 'none' | 'reserved' | 'committed' | 'released' | 'shortfall';
   payment_provider?: 'paymob' | 'manual';
   paymob_order_id?: string;
   paymob_transaction_id?: string;
@@ -94,7 +105,7 @@ export interface Payment {
   status: 'initiated' | 'pending' | 'successful' | 'failed' | 'cancelled' | 'refunded';
   payment_url?: string;
   iframe_url?: string;
-  raw_response?: any;
+  raw_response?: unknown;
   created_at: string;
   updated_at: string;
 }
@@ -119,6 +130,7 @@ export interface Testimonial {
   message: string;
   rating: number;
   is_active: boolean;
+  translations?: ContentTranslations;
   created_at: string;
   updated_at: string;
 }
@@ -129,6 +141,7 @@ export interface FAQ {
   answer: string;
   order_index: number;
   is_active: boolean;
+  translations?: ContentTranslations;
   created_at: string;
   updated_at: string;
 }
@@ -140,11 +153,100 @@ export interface SiteSetting {
   updated_at: string;
 }
 
-export interface AdminProfile {
-  id: string;
+export type StaffRole = 'owner' | 'sales';
+
+export interface StaffProfile {
   user_id: string;
-  full_name?: string;
-  role: 'admin' | 'editor';
+  full_name: string;
+  role: StaffRole;
   is_active: boolean;
+}
+
+/** Public stock signal: 'available' means stock is not tracked for that product. */
+export type ProductAvailability = 'in_stock' | 'low_stock' | 'out_of_stock' | 'available';
+
+export interface InventoryRow {
+  product_id: string;
+  track_inventory: boolean;
+  stock_on_hand: number;
+  stock_reserved: number;
+  stock_available: number;
+  low_stock_threshold: number;
+  quantity_confirmed: boolean;
+  updated_at: string;
+}
+
+export interface PaymentRefund {
+  id: string;
+  kind: 'refund' | 'void';
+  amount_minor: number;
+  currency: string;
+  cumulative_refunded_minor: number;
   created_at: string;
+}
+
+export interface NotificationStatus {
+  id: string;
+  event_type: string;
+  status: 'pending' | 'sending' | 'sent' | 'failed';
+  attempts: number;
+  sent_at: string | null;
+  last_error: string | null;
+  created_at: string;
+}
+
+export interface InventoryMovement {
+  id: number;
+  product_id: string;
+  order_id: string | null;
+  kind: string;
+  on_hand_before: number;
+  on_hand_after: number;
+  reserved_before: number;
+  reserved_after: number;
+  actor_role: string;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface PaymentAlert {
+  id: number;
+  order_id: string | null;
+  kind: string;
+  message: string;
+  created_at: string;
+  resolved_at: string | null;
+  resolution: string | null;
+}
+
+export interface OrderStatusHistoryEntry {
+  id: number;
+  actor_role: string;
+  from_status: string | null;
+  to_status: string | null;
+  from_payment_status: string | null;
+  to_payment_status: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface SalesReport {
+  /** Money captured in the period, including orders later cancelled or refunded. */
+  gross: number;
+  refunds: number;
+  /** Net collected: gross minus refunds. */
+  revenue: number;
+  cancelled_paid: number;
+  cancelled_paid_amount: number;
+  orders: number;
+  units: number;
+  cost: number;
+  costed_revenue: number;
+  uncosted_revenue: number;
+  online_revenue: number;
+  manual_revenue: number;
+  pending_payment: number;
+  failed_payment: number;
+  by_month: { month: string; revenue: number; orders: number }[];
+  by_product: { product_name: string; units: number; revenue: number; cost: number | null; has_cost: boolean }[];
 }

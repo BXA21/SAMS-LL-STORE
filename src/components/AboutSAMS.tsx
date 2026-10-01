@@ -1,24 +1,17 @@
 import React from 'react';
 import { Shield, Sparkles, LayoutGrid } from 'lucide-react';
+import type { Locale } from '@/i18n/config';
+import { homeMessages } from '@/i18n/messages/home';
 
-export default function AboutSAMS() {
-  const cards = [
-    {
-      icon: <Shield className="w-8 h-8 text-fire" />,
-      title: "Automatic Protection",
-      description: "Our fire safety products self-activate on direct contact with flames, providing immediate suppression support."
-    },
-    {
-      icon: <Sparkles className="w-8 h-8 text-fire" />,
-      title: "Easy to Use",
-      description: "No special training, pull pins, or manual operations required. Designed for immediate protection by anyone."
-    },
-    {
-      icon: <LayoutGrid className="w-8 h-8 text-fire" />,
-      title: "Built for Different Spaces",
-      description: "Suitable for residential homes, office spaces, warehouses, electrical panels, vehicles, and industrial zones."
-    }
-  ];
+const CARD_ICONS = [
+  <Shield key="shield" className="w-8 h-8 text-fire" />,
+  <Sparkles key="sparkles" className="w-8 h-8 text-fire" />,
+  <LayoutGrid key="grid" className="w-8 h-8 text-fire" />,
+];
+
+export default function AboutSAMS({ locale }: { locale: Locale }) {
+  const t = homeMessages[locale].about;
+  const cards = t.cards.map((card, i) => ({ ...card, icon: CARD_ICONS[i] }));
 
   return (
     <section className="py-24 bg-white">
@@ -29,28 +22,28 @@ export default function AboutSAMS() {
             <div className="flex items-center gap-2">
               <span className="h-0.5 w-6 bg-fire" />
               <span className="text-xs uppercase tracking-widest font-bold text-navy">
-                Who We Are
+                {t.eyebrow}
               </span>
             </div>
             <h2 className="font-display text-4xl sm:text-5xl font-bold uppercase tracking-tight text-navy leading-tight">
-              About SWIFT ADVANCED<br />
-              MANAGEMENT SOLUTIONS
+              {t.titleLine1}<br />
+              {t.titleLine2}
             </h2>
             <p className="text-lg font-medium text-fire uppercase tracking-wide">
-              Smart Fire Safety Made Simple
+              {t.tagline}
             </p>
           </div>
 
           {/* Right Column: Paragraph narrative */}
           <div className="text-gray-600 space-y-4 font-light leading-relaxed text-sm sm:text-base">
             <p>
-              In a world where fire safety and security are essential, <strong>SWIFT ADVANCED MANAGEMENT SOLUTIONS LLC (SAMS)</strong> brings advanced fire safety products to Oman. Our offerings include automatic fire extinguisher balls, fire extinguisher flower pots, fire drums, smoke detectors, fire alarms, location-sharing fire alarms, and electrical board fire safety devices.
+              {t.p1Lead}<strong>{t.p1Company}</strong>{t.p1Rest}
             </p>
             <p>
-              SAMS is committed to protecting lives and properties through reliable, easy-to-use, and technologically advanced fire safety solutions. Our products are designed to meet high safety standards and support residential, commercial, and industrial environments.
+              {t.p2}
             </p>
             <p>
-              Whether customers need protection for a home, office, warehouse, factory, vehicle, electrical panel, or kitchen area, SAMS provides tailored guidance to help them choose the right solution.
+              {t.p3}
             </p>
           </div>
         </div>

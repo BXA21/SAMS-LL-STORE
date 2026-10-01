@@ -39,24 +39,21 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to view th
 
 ## 🔒 Security & Admin Access
 The admin panel is accessible at `/admin`.
-- **Supabase Connected Mode**: Log in using your configured Supabase Auth administrator account.
-- **Local Sandbox Fallback Mode**: If Supabase environment keys are not configured or are placeholders, you can test the dashboard immediately using these credentials:
-  - **Email**: `admin@sams-oman.com`
-  - **Password**: `SAMSAdmin2026!`
+- Staff sign in with their own Supabase Auth account. Access is granted only by a row in `public.staff_profiles` with role `owner` (everything, including costs and profit reports) or `sales` (orders, quotations, CRM).
+- Public sign-up is disabled. New staff are created by the owner in the Supabase dashboard (Authentication → Users) and then given a `staff_profiles` row.
+- No credentials are stored in this repository or in `NEXT_PUBLIC_*` variables.
 
 ---
 
 ## 💳 Paymob Integration & Webhook Testing
 This project implements a secure checkout containing two flows:
-1. **Online Card Payment**: Processes order totals securely on the server (fetching actual prices from the database to prevent client-side price tampering) and initializes a Paymob credit card iframe session.
-2. **Offline Quote Inquiry**: Submits inquiry orders straight to the admin dashboard database, useful for bulk requests.
+1. **Online Card Payment**: the server prices the cart from the database (`create_checkout_order`), creates a Paymob **Unified Intention** and sends the customer to Paymob's hosted Unified Checkout. Card details never touch this site.
+2. **Quotation Request**: saved server-side for the sales team; payment is arranged offline.
 
-### Local Testing (Payment Simulator)
-When Paymob keys are not set up or are placeholders, the payment flow generates a simulated sandbox checkout URL:
-1. Add items to the cart and proceed to checkout.
-2. Under "Select Order Type", choose "Online Credit Card" and fill in your details.
-3. Click "Confirm Order & Pay Now" — you will be redirected to our local Sandbox Simulator at `/paymob-simulate`.
-4. Click "Pay Successfully" to simulate a validated transaction callback. The simulator fires the `/api/paymob/webhook` POST endpoint (updating the database order status to `paid`) and redirects you back to the `/checkout/result` confirmation page.
+An order becomes **Paid only through the server-to-server webhook** (`/api/paymob/webhook`): HMAC-SHA512 verified, amount and currency checked against the order, replays ignored, and a paid order is never downgraded. The browser redirect (`/api/paymob/return`) is display-only.
+
+### Local testing
+Paymob cannot reach `localhost`, so set `PAYMOB_CALLBACK_BASE_URL` to a publicly reachable URL of the running app (preview deployment or tunnel) and use Paymob's test card in test mode. See `.env.example` for every variable. Database schema and policies live in `supabase/migrations/`.
 
 ---
 

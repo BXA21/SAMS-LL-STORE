@@ -1,3 +1,4 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { 
   Category, 
@@ -7,14 +8,37 @@ import {
   Certificate, 
   Testimonial, 
   FAQ, 
-  SiteSetting 
+  SiteSetting,
+  StaffProfile,
+  OrderStatusHistoryEntry,
+  PaymentAlert,
+  ProductAvailability,
+  InventoryRow,
+  InventoryMovement,
+  PaymentRefund,
+  NotificationStatus,
+  SalesReport,
+  ContentTranslations
 } from '@/types/database';
+import { CATEGORY_AR, FAQ_AR, PRODUCT_AR, TESTIMONIAL_AR } from '@/i18n/arabicContent';
 
 // -----------------------------------------------------------------------------
 // LOCAL STORAGE & SEED MOCK DATA FALLBACKS
 // -----------------------------------------------------------------------------
 
-const DEFAULT_CATEGORIES: Category[] = [
+/** Attaches the seeded Arabic copy to the offline defaults, mirroring the database rows. */
+function withArabic<T extends { translations?: ContentTranslations }>(
+  arabic: Record<string, object>,
+  keyOf: (row: T) => string,
+  rows: T[]
+): T[] {
+  return rows.map((row) => {
+    const ar = arabic[keyOf(row)];
+    return ar ? { ...row, translations: { ar: { ...ar } } } : row;
+  });
+}
+
+const DEFAULT_CATEGORIES: Category[] = withArabic(CATEGORY_AR, (c: Category) => c.slug, [
   {
     id: '11111111-1111-1111-1111-111111111111',
     name: 'Fire Extinguisher Balls',
@@ -35,9 +59,9 @@ const DEFAULT_CATEGORIES: Category[] = [
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }
-];
+]);
 
-export const DEFAULT_PRODUCTS: Product[] = [
+export const DEFAULT_PRODUCTS: Product[] = withArabic(PRODUCT_AR, (p: Product) => p.slug, [
   {
     id: 'p1',
     name: 'GFO Baby Fire Ball 400 gms',
@@ -227,9 +251,9 @@ export const DEFAULT_PRODUCTS: Product[] = [
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }
-];
+]);
 
-const DEFAULT_TESTIMONIALS: Testimonial[] = [
+const DEFAULT_TESTIMONIALS: Testimonial[] = withArabic(TESTIMONIAL_AR, (t: Testimonial) => t.name, [
   {
     id: 't1',
     name: 'Rahul Kumar',
@@ -263,9 +287,9 @@ const DEFAULT_TESTIMONIALS: Testimonial[] = [
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }
-];
+]);
 
-const DEFAULT_FAQS: FAQ[] = [
+const DEFAULT_FAQS: FAQ[] = withArabic(FAQ_AR, (f: FAQ) => f.question, [
   {
     id: 'f1',
     question: 'What is the effectiveness of fire balls?',
@@ -338,7 +362,7 @@ const DEFAULT_FAQS: FAQ[] = [
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }
-];
+]);
 
 const DEFAULT_CERTIFICATES: Certificate[] = [
   {
@@ -448,9 +472,9 @@ function safeRemoveItem(key: string): void {
  * price reuses one of those numbers. Bump SEED_VERSION whenever DEFAULT_PRODUCTS
  * or DEFAULT_SITE_SETTINGS change and every browser reseeds once on its next load.
  */
-const SEED_VERSION = '2026-09-03-pricing';
+const SEED_VERSION = '2026-10-01-arabic';
 const SEED_VERSION_KEY = 'sams_seed_version';
-const VERSIONED_SEED_KEYS = ['sams_products', 'sams_site_settings'];
+const VERSIONED_SEED_KEYS = ['sams_products', 'sams_site_settings', 'sams_categories', 'sams_faqs', 'sams_testimonials'];
 
 let seedVersionChecked = false;
 
@@ -493,81 +517,105 @@ function setLocalData<T>(key: string, value: T[]): void {
 // -----------------------------------------------------------------------------
 // UNIFIED DATA SERVICE INTERFACE
 // -----------------------------------------------------------------------------
+//
+// Public catalog reads fall back to the bundled defaults so the storefront
+// always renders. Everything else talks to the real backend:
+//   - customer writes (enquiries, quotations, card checkout) go through the
+//     Next.js API routes, which validate, rate limit and price on the server;
+//   - dashboard reads/writes run under the signed-in staff member's Supabase
+//     session and are enforced by row level security in the database.
+
+function requireDb(): SupabaseClient {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('The store database is not connected. Please contact the site administrator.');
+  }
+  return supabase;
+}
+
+interface ApiErrorBody {
+  error?: { code?: string; message?: string; fields?: { path: string; message: string }[] };
+}
+
+export class ApiRequestError extends Error {
+  constructor(message: string, readonly code?: string, readonly status?: number) {
+    super(message);
+    this.name = 'ApiRequestError';
+  }
+}
+
+async function postJson<T>(url: string, body: unknown, extraHeaders: Record<string, string> = {}): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...extraHeaders },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiRequestError('Network error. Please check your connection and try again.');
+  }
+  const json = (await res.json().catch(() => ({}))) as { data?: T } & ApiErrorBody;
+  if (!res.ok || json.data === undefined) {
+    const firstField = json.error?.fields?.[0]?.message;
+    throw new ApiRequestError(
+      firstField ? `${json.error?.message ?? 'Invalid request.'} (${firstField})` : json.error?.message ?? 'Something went wrong. Please try again.',
+      json.error?.code,
+      res.status
+    );
+  }
+  return json.data;
+}
+
+const PRODUCT_WRITABLE_FIELDS = [
+  'name', 'slug', 'make', 'category_id', 'product_type', 'short_description', 'overview', 'price',
+  'weight', 'life_years', 'quantity', 'stock', 'images', 'key_features', 'specifications',
+  'best_for', 'safety_notes', 'usage_areas', 'is_featured', 'is_active', 'translations',
+] as const satisfies readonly (keyof Product)[];
+
+function pickProductFields(product: Partial<Product>): Partial<Product> {
+  const out: Partial<Product> = {};
+  for (const key of PRODUCT_WRITABLE_FIELDS) {
+    if (product[key] !== undefined) (out as Record<string, unknown>)[key] = product[key];
+  }
+  if (out.images) out.images = out.images.filter(Boolean);
+  return out;
+}
+
+export interface CheckoutCustomer {
+  fullName: string;
+  email: string;
+  phone: string;
+  address: string;
+  companyName?: string;
+  notes?: string;
+}
+
+export interface CheckoutLine {
+  slug: string;
+  quantity: number;
+}
 
 export const dbService = {
   // --- CATEGORIES ---
   async getCategories(): Promise<Category[]> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('categories')
-        .select('*')
-        .eq('is_active', true);
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase.from('categories').select('*').eq('is_active', true);
       if (!error && data) return data;
-      console.error('Supabase categories fetch error, using local fallback:', error);
     }
     return getLocalData('sams_categories', DEFAULT_CATEGORIES).filter(c => c.is_active);
   },
 
-  async getAllCategoriesAdmin(): Promise<Category[]> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('categories')
-        .select('*')
-        .order('name');
-      if (!error && data) return data;
-    }
-    return getLocalData('sams_categories', DEFAULT_CATEGORIES);
-  },
-
-  async saveCategory(category: Partial<Category>): Promise<Category> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('categories')
-        .upsert({ ...category, updated_at: new Date().toISOString() })
-        .select()
-        .single();
-      if (!error && data) return data;
-      throw new Error(error?.message || 'Failed to save category in Supabase');
-    }
-    const categories = getLocalData('sams_categories', DEFAULT_CATEGORIES);
-    if (category.id) {
-      const idx = categories.findIndex(c => c.id === category.id);
-      if (idx !== -1) {
-        categories[idx] = { ...categories[idx], ...category, updated_at: new Date().toISOString() } as Category;
-        setLocalData('sams_categories', categories);
-        return categories[idx];
-      }
-    }
-    const newCat: Category = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: category.name || 'New Category',
-      slug: category.slug || 'new-category',
-      description: category.description,
-      image_url: category.image_url || '/hero_bg.png',
-      is_active: category.is_active ?? true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    categories.push(newCat);
-    setLocalData('sams_categories', categories);
-    return newCat;
-  },
-
   // --- PRODUCTS ---
   async getProducts(): Promise<Product[]> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('is_active', true);
-      if (!error && data) return data;
-      console.error('Supabase products fetch error, using local fallback:', error);
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase.from('products').select('*').eq('is_active', true).order('price');
+      if (!error && data && data.length) return data;
     }
     return getLocalData('sams_products', DEFAULT_PRODUCTS).filter(p => p.is_active);
   },
 
   async getProductBySlug(slug: string): Promise<Product | null> {
-    if (isSupabaseConfigured) {
+    if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase
         .from('products')
         .select('*')
@@ -577,380 +625,313 @@ export const dbService = {
       if (!error && data) return data;
     }
     const products = getLocalData('sams_products', DEFAULT_PRODUCTS);
-    const prod = products.find(p => p.slug === slug && p.is_active);
-    return prod || null;
+    return products.find(p => p.slug === slug && p.is_active) || null;
   },
 
-  async getProductById(id: string): Promise<Product | null> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('id', id)
-        .maybeSingle();
-      if (!error && data) return data;
-    }
-    const products = getLocalData('sams_products', DEFAULT_PRODUCTS);
-    const prod = products.find(p => p.id === id);
-    return prod || null;
+  /** Every product including inactive ones (staff session). */
+  async getAllProductsAdmin(): Promise<Product[]> {
+    const { data, error } = await requireDb().from('products').select('*').order('name');
+    if (error) throw new Error(error.message);
+    return data ?? [];
   },
 
   async saveProduct(product: Partial<Product>): Promise<Product> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('products')
-        .upsert({ ...product, updated_at: new Date().toISOString() })
-        .select()
-        .single();
-      if (!error && data) return data;
-      throw new Error(error?.message || 'Failed to save product in Supabase');
-    }
-    const products = getLocalData('sams_products', DEFAULT_PRODUCTS);
-    if (product.id) {
-      const idx = products.findIndex(p => p.id === product.id);
-      if (idx !== -1) {
-        const oldPrice = products[idx].price;
-        const newPrice = product.price ?? oldPrice;
-        
-        // Log price history if changed
-        if (oldPrice !== newPrice) {
-          const priceHist = getLocalData<any>('sams_price_history', []);
-          priceHist.push({
-            id: Math.random().toString(),
-            product_id: product.id,
-            old_price: oldPrice,
-            new_price: newPrice,
-            currency: product.currency || 'OMR',
-            changed_by: 'Admin',
-            reason: 'Manual adjustment',
-            created_at: new Date().toISOString()
-          });
-          setLocalData('sams_price_history', priceHist);
-        }
-
-        products[idx] = { ...products[idx], ...product, updated_at: new Date().toISOString() } as Product;
-        setLocalData('sams_products', products);
-        return products[idx];
-      }
-    }
-    const newProd: Product = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: product.name || 'New Product',
-      slug: product.slug || 'new-product',
-      make: product.make || 'GFO',
-      category_id: product.category_id,
-      product_type: product.product_type || 'Fire Extinguisher Ball',
-      short_description: product.short_description || '',
-      overview: product.overview || '',
-      price: product.price || 0,
-      currency: product.currency || 'OMR',
-      weight: product.weight || '1.3 kgs',
-      life_years: product.life_years || 5,
-      quantity: product.quantity || 1,
-      stock: product.stock ?? 10,
-      images: product.images || ['/hero_bg.png'],
-      key_features: product.key_features || [],
-      specifications: product.specifications || {},
-      best_for: product.best_for || [],
-      safety_notes: product.safety_notes || [],
-      usage_areas: product.usage_areas || [],
-      is_featured: product.is_featured || false,
-      is_active: product.is_active ?? true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    products.push(newProd);
-    setLocalData('sams_products', products);
-    return newProd;
+    const db = requireDb();
+    const fields = pickProductFields(product);
+    const query = product.id
+      ? db.from('products').update(fields).eq('id', product.id)
+      : db.from('products').insert(fields);
+    const { data, error } = await query.select().single();
+    if (error || !data) throw new Error(error?.message || 'Failed to save product');
+    return data;
   },
 
-  async deleteProduct(id: string): Promise<boolean> {
-    if (isSupabaseConfigured) {
-      const { error } = await supabase
-        .from('products')
-        .update({ is_active: false })
-        .eq('id', id);
-      return !error;
-    }
-    const products = getLocalData('sams_products', DEFAULT_PRODUCTS);
-    const idx = products.findIndex(p => p.id === id);
-    if (idx !== -1) {
-      products[idx].is_active = false;
-      setLocalData('sams_products', products);
-      return true;
-    }
-    return false;
+  // --- CUSTOMER WRITES (server API) ---
+  async submitInquiry(input: {
+    fullName: string;
+    email: string;
+    phone: string;
+    companyName?: string;
+    productSlug?: string;
+    quantity: number;
+    message: string;
+  }): Promise<void> {
+    await postJson('/api/inquiries', input);
   },
 
-  // --- INQUIRIES ---
-  async getInquiries(): Promise<Inquiry[]> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('inquiries')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (!error && data) return data;
-    }
-    return getLocalData<Inquiry>('sams_inquiries', []).sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  async submitQuotation(customer: CheckoutCustomer, items: CheckoutLine[]) {
+    return postJson<{ orderNumber: string; totalAmount: number; currency: string }>('/api/checkout/quote', { customer, items });
+  },
+
+  /** checkoutKey: one per checkout attempt, so a double submit cannot create two orders. */
+  async startCardPayment(customer: CheckoutCustomer, items: CheckoutLine[], checkoutKey: string) {
+    return postJson<{ orderNumber: string; paymentUrl: string }>(
+      '/api/checkout/create-payment',
+      { customer, items, deliveryAcknowledged: true },
+      { 'Idempotency-Key': checkoutKey }
     );
   },
 
-  async saveInquiry(inquiry: Partial<Inquiry>): Promise<Inquiry> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('inquiries')
-        .insert({
-          ...inquiry,
-          status: inquiry.status || 'new',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-      if (!error && data) return data;
-      throw new Error(error?.message || 'Failed to submit inquiry to Supabase');
-    }
-    const inquiries = getLocalData<Inquiry>('sams_inquiries', []);
-    const newInq: Inquiry = {
-      id: Math.random().toString(36).substr(2, 9),
-      full_name: inquiry.full_name || '',
-      email: inquiry.email || '',
-      phone: inquiry.phone || '',
-      company_name: inquiry.company_name,
-      product_id: inquiry.product_id,
-      product_name: inquiry.product_name,
-      quantity: inquiry.quantity || 1,
-      message: inquiry.message || '',
-      status: inquiry.status || 'new',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    inquiries.push(newInq);
-    setLocalData('sams_inquiries', inquiries);
-    return newInq;
+  // --- SALES PIPELINE (staff session) ---
+  async getInquiries(): Promise<Inquiry[]> {
+    const { data, error } = await requireDb()
+      .from('inquiries')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(1000);
+    if (error) throw new Error(error.message);
+    return data ?? [];
   },
 
   async updateInquiryStatus(id: string, status: Inquiry['status']): Promise<boolean> {
-    if (isSupabaseConfigured) {
-      const { error } = await supabase
-        .from('inquiries')
-        .update({ status, updated_at: new Date().toISOString() })
-        .eq('id', id);
-      return !error;
-    }
-    const inquiries = getLocalData<Inquiry>('sams_inquiries', []);
-    const idx = inquiries.findIndex(i => i.id === id);
-    if (idx !== -1) {
-      inquiries[idx].status = status;
-      inquiries[idx].updated_at = new Date().toISOString();
-      setLocalData('sams_inquiries', inquiries);
-      return true;
-    }
-    return false;
+    const { error } = await requireDb().from('inquiries').update({ status }).eq('id', id);
+    return !error;
   },
 
-  // --- ORDERS ---
   async getOrders(): Promise<Order[]> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (!error && data) return data;
-    }
-    return getLocalData<Order>('sams_orders', []).sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
+    const { data, error } = await requireDb()
+      .from('orders')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(1000);
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((o) => ({ ...o, total_amount: Number(o.total_amount) }));
   },
 
-  async saveOrder(order: Partial<Order>): Promise<Order> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('orders')
-        .insert({
-          ...order,
-          status: order.status || 'pending_payment',
-          payment_status: order.payment_status || 'initiated',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-      if (!error && data) return data;
-      throw new Error(error?.message || 'Failed to save order in Supabase');
-    }
-    const orders = getLocalData<Order>('sams_orders', []);
-    const newOrder: Order = {
-      id: Math.random().toString(36).substr(2, 9),
-      customer_name: order.customer_name || '',
-      email: order.email || '',
-      phone: order.phone || '',
-      address: order.address || '',
-      company_name: order.company_name,
-      notes: order.notes,
-      total_amount: order.total_amount || 0,
-      currency: order.currency || 'OMR',
-      status: order.status || 'pending_payment',
-      payment_status: order.payment_status || 'initiated',
-      payment_provider: order.payment_provider || 'paymob',
-      paymob_order_id: order.paymob_order_id,
-      paymob_transaction_id: order.paymob_transaction_id,
-      items: order.items || [],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    orders.push(newOrder);
-    setLocalData('sams_orders', orders);
-    return newOrder;
+  /**
+   * Moves an order to a new fulfilment status. The database enforces the
+   * transition table, payment prerequisites and stale-write protection, and
+   * writes the audit history; the dashboard only offers valid moves.
+   */
+  async setOrderStatus(id: string, expected: Order['status'], next: Order['status'], reason?: string): Promise<{ ok: boolean; message?: string }> {
+    const { error } = await requireDb().rpc('staff_set_order_status', {
+      p_order_id: id,
+      p_expected_status: expected,
+      p_new_status: next,
+      p_reason: reason ?? null,
+    });
+    return error ? { ok: false, message: error.message } : { ok: true };
   },
 
-  async updateOrderStatus(id: string, status: Order['status'], payment_status?: Order['payment_status']): Promise<boolean> {
-    if (isSupabaseConfigured) {
-      const payload: Partial<Order> = { status, updated_at: new Date().toISOString() };
-      if (payment_status) payload.payment_status = payment_status;
-      const { error } = await supabase
-        .from('orders')
-        .update(payload)
-        .eq('id', id);
-      return !error;
-    }
-    const orders = getLocalData<Order>('sams_orders', []);
-    const idx = orders.findIndex(o => o.id === id);
-    if (idx !== -1) {
-      orders[idx].status = status;
-      if (payment_status) orders[idx].payment_status = payment_status;
-      orders[idx].updated_at = new Date().toISOString();
-      setLocalData('sams_orders', orders);
-      return true;
-    }
-    return false;
+  /** Owner only: records (or corrects) an offline payment on a quotation order. */
+  async setOfflinePayment(
+    id: string,
+    expected: Order['payment_status'],
+    next: Order['payment_status'],
+    reason: string
+  ): Promise<{ ok: boolean; message?: string }> {
+    const { error } = await requireDb().rpc('owner_set_offline_payment', {
+      p_order_id: id,
+      p_expected_payment_status: expected,
+      p_new_payment_status: next,
+      p_reason: reason,
+    });
+    return error ? { ok: false, message: error.message } : { ok: true };
+  },
+
+  /** Open payment alerts (money that needs a human decision). Visible to all staff. */
+  /** Public stock signal per product slug (no exact quantities). */
+  async getProductAvailability(): Promise<Record<string, ProductAvailability>> {
+    if (!isSupabaseConfigured || !supabase) return {};
+    const { data, error } = await supabase.rpc('get_product_availability');
+    if (error || !Array.isArray(data)) return {};
+    return Object.fromEntries((data as { slug: string; availability: ProductAvailability }[]).map((r) => [r.slug, r.availability]));
+  },
+
+  /** Stock levels (all staff can read). */
+  async getInventory(): Promise<Record<string, InventoryRow>> {
+    const { data, error } = await requireDb().from('product_inventory').select('*');
+    if (error) throw new Error(error.message);
+    return Object.fromEntries(((data ?? []) as InventoryRow[]).map((r) => [r.product_id, r]));
+  },
+
+  async getInventoryMovements(productId: string): Promise<InventoryMovement[]> {
+    const { data, error } = await requireDb()
+      .from('inventory_movements')
+      .select('id, product_id, order_id, kind, on_hand_before, on_hand_after, reserved_before, reserved_after, actor_role, reason, created_at')
+      .eq('product_id', productId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as InventoryMovement[];
+  },
+
+  /** Owner only: set stock (stale-safe), tracking and low-stock threshold. */
+  async setStock(input: {
+    productId: string;
+    expectedOnHand: number;
+    newOnHand: number;
+    trackInventory: boolean;
+    lowStockThreshold: number;
+    reason: string;
+  }): Promise<{ ok: boolean; message?: string }> {
+    const { error } = await requireDb().rpc('owner_set_stock', {
+      p_product_id: input.productId,
+      p_expected_on_hand: input.expectedOnHand,
+      p_new_on_hand: input.newOnHand,
+      p_track_inventory: input.trackInventory,
+      p_low_stock_threshold: input.lowStockThreshold,
+      p_reason: input.reason,
+    });
+    return error ? { ok: false, message: error.message } : { ok: true };
+  },
+
+  /** Owner only: physically returned goods go back on the shelf (never automatic after a refund). */
+  async returnToStock(orderId: string, productId: string, quantity: number, reason: string): Promise<{ ok: boolean; message?: string }> {
+    const { error } = await requireDb().rpc('owner_return_to_stock', {
+      p_order_id: orderId,
+      p_product_id: productId,
+      p_quantity: quantity,
+      p_reason: reason,
+      p_idempotency_key: crypto.randomUUID(),
+    });
+    return error ? { ok: false, message: error.message } : { ok: true };
+  },
+
+  /** Owner only: after restocking, take stock for a paid order that had a shortfall. */
+  async retryStockCommit(orderId: string, reason: string): Promise<{ ok: boolean; message?: string }> {
+    const { error } = await requireDb().rpc('owner_retry_stock_commit', { p_order_id: orderId, p_reason: reason });
+    return error ? { ok: false, message: error.message } : { ok: true };
+  },
+
+  async getOrderRefunds(orderId: string): Promise<PaymentRefund[]> {
+    const { data, error } = await requireDb()
+      .from('payment_refunds')
+      .select('id, kind, amount_minor, currency, cumulative_refunded_minor, created_at')
+      .eq('order_id', orderId)
+      .order('created_at', { ascending: true });
+    if (error) throw new Error(error.message);
+    return (data ?? []) as PaymentRefund[];
+  },
+
+  /** Owner only (RLS): delivery status of this order's notifications. */
+  async getOrderNotifications(orderId: string): Promise<NotificationStatus[]> {
+    const { data, error } = await requireDb()
+      .from('notification_outbox')
+      .select('id, event_type, status, attempts, sent_at, last_error, created_at')
+      .eq('order_id', orderId)
+      .order('created_at', { ascending: true });
+    if (error) return [];
+    return (data ?? []) as NotificationStatus[];
+  },
+
+  async getOpenPaymentAlerts(): Promise<PaymentAlert[]> {
+    const { data, error } = await requireDb()
+      .from('payment_alerts')
+      .select('id, order_id, kind, message, created_at, resolved_at, resolution')
+      .is('resolved_at', null)
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as PaymentAlert[];
+  },
+
+  /** Owner only: closes an alert with a written resolution. */
+  async resolvePaymentAlert(alertId: number, resolution: string): Promise<{ ok: boolean; message?: string }> {
+    const { error } = await requireDb().rpc('owner_resolve_payment_alert', { p_alert_id: alertId, p_resolution: resolution });
+    return error ? { ok: false, message: error.message } : { ok: true };
+  },
+
+  async getOrderHistory(orderId: string): Promise<OrderStatusHistoryEntry[]> {
+    const { data, error } = await requireDb()
+      .from('order_status_history')
+      .select('id, actor_role, from_status, to_status, from_payment_status, to_payment_status, reason, created_at')
+      .eq('order_id', orderId)
+      .order('created_at', { ascending: true })
+      .limit(100);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as OrderStatusHistoryEntry[];
+  },
+
+  async updateOrderNotes(id: string, staff_notes: string): Promise<boolean> {
+    const { error } = await requireDb().from('orders').update({ staff_notes }).eq('id', id);
+    return !error;
+  },
+
+  // --- STAFF / OWNER ---
+  async getMyStaffProfile(): Promise<StaffProfile | null> {
+    const db = requireDb();
+    const { data: userData } = await db.auth.getUser();
+    const userId = userData.user?.id;
+    if (!userId) return null;
+    const { data, error } = await db
+      .from('staff_profiles')
+      .select('user_id, full_name, role, is_active')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error || !data || !data.is_active) return null;
+    return data as StaffProfile;
+  },
+
+  async getProductCosts(): Promise<Record<string, number>> {
+    const { data, error } = await requireDb().from('product_costs').select('product_id, unit_cost');
+    if (error) throw new Error(error.message);
+    return Object.fromEntries((data ?? []).map((row) => [row.product_id, Number(row.unit_cost)]));
+  },
+
+  async saveProductCost(productId: string, unitCost: number | null): Promise<void> {
+    const db = requireDb();
+    const { error } = unitCost === null
+      ? await db.from('product_costs').delete().eq('product_id', productId)
+      : await db.from('product_costs').upsert({ product_id: productId, unit_cost: unitCost });
+    if (error) throw new Error(error.message);
+  },
+
+  async getSalesReport(from: Date, to: Date): Promise<SalesReport> {
+    const { data, error } = await requireDb().rpc('get_sales_report', {
+      p_from: from.toISOString(),
+      p_to: to.toISOString(),
+    });
+    if (error) throw new Error(error.message);
+    return data as SalesReport;
   },
 
   // --- CERTIFICATES ---
   async getCertificates(): Promise<Certificate[]> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('certificates')
-        .select('*')
-        .eq('is_active', true);
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase.from('certificates').select('*').eq('is_active', true);
       if (!error && data) return data;
     }
     return getLocalData('sams_certificates', DEFAULT_CERTIFICATES).filter(c => c.is_active);
   },
 
   async getAllCertificatesAdmin(): Promise<Certificate[]> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('certificates')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (!error && data) return data;
-    }
-    return getLocalData('sams_certificates', DEFAULT_CERTIFICATES);
+    const { data, error } = await requireDb().from('certificates').select('*').eq('is_active', true).order('created_at', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data ?? [];
   },
 
   async saveCertificate(certificate: Partial<Certificate>): Promise<Certificate> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('certificates')
-        .upsert({ ...certificate, updated_at: new Date().toISOString() })
-        .select()
-        .single();
-      if (!error && data) return data;
-      throw new Error(error?.message || 'Failed to save certificate in Supabase');
-    }
-    const certs = getLocalData('sams_certificates', DEFAULT_CERTIFICATES);
-    if (certificate.id) {
-      const idx = certs.findIndex(c => c.id === certificate.id);
-      if (idx !== -1) {
-        certs[idx] = { ...certs[idx], ...certificate, updated_at: new Date().toISOString() } as Certificate;
-        setLocalData('sams_certificates', certs);
-        return certs[idx];
-      }
-    }
-    const newCert: Certificate = {
-      id: Math.random().toString(36).substr(2, 9),
-      title: certificate.title || 'New Certificate',
+    const db = requireDb();
+    const fields = {
+      title: certificate.title,
       description: certificate.description,
-      image_url: certificate.image_url || '/hero_bg.png',
-      file_url: certificate.file_url || '#',
-      certificate_type: certificate.certificate_type || 'Safety Standard',
-      is_active: certificate.is_active ?? true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      image_url: certificate.image_url,
+      file_url: certificate.file_url,
+      certificate_type: certificate.certificate_type,
+      is_active: certificate.is_active,
     };
-    certs.push(newCert);
-    setLocalData('sams_certificates', certs);
-    return newCert;
+    const query = certificate.id
+      ? db.from('certificates').update(fields).eq('id', certificate.id)
+      : db.from('certificates').insert({ ...fields, image_url: fields.image_url ?? '/hero_bg.png', file_url: fields.file_url ?? '#' });
+    const { data, error } = await query.select().single();
+    if (error || !data) throw new Error(error?.message || 'Failed to save certificate');
+    return data;
   },
 
   // --- TESTIMONIALS ---
   async getTestimonials(): Promise<Testimonial[]> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('testimonials')
-        .select('*')
-        .eq('is_active', true);
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase.from('testimonials').select('*').eq('is_active', true);
       if (!error && data) return data;
     }
     return getLocalData('sams_testimonials', DEFAULT_TESTIMONIALS).filter(t => t.is_active);
   },
 
-  async getAllTestimonialsAdmin(): Promise<Testimonial[]> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('testimonials')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (!error && data) return data;
-    }
-    return getLocalData('sams_testimonials', DEFAULT_TESTIMONIALS);
-  },
-
-  async saveTestimonial(testimonial: Partial<Testimonial>): Promise<Testimonial> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('testimonials')
-        .upsert({ ...testimonial, updated_at: new Date().toISOString() })
-        .select()
-        .single();
-      if (!error && data) return data;
-      throw new Error(error?.message || 'Failed to save testimonial in Supabase');
-    }
-    const tests = getLocalData('sams_testimonials', DEFAULT_TESTIMONIALS);
-    if (testimonial.id) {
-      const idx = tests.findIndex(t => t.id === testimonial.id);
-      if (idx !== -1) {
-        tests[idx] = { ...tests[idx], ...testimonial, updated_at: new Date().toISOString() } as Testimonial;
-        setLocalData('sams_testimonials', tests);
-        return tests[idx];
-      }
-    }
-    const newTest: Testimonial = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: testimonial.name || 'Anonymous',
-      position: testimonial.position,
-      company: testimonial.company,
-      message: testimonial.message || '',
-      rating: testimonial.rating || 5,
-      is_active: testimonial.is_active ?? true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    tests.push(newTest);
-    setLocalData('sams_testimonials', tests);
-    return newTest;
-  },
-
   // --- FAQS ---
   async getFAQs(): Promise<FAQ[]> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('faqs')
-        .select('*')
-        .eq('is_active', true)
-        .order('order_index');
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase.from('faqs').select('*').eq('is_active', true).order('order_index');
       if (!error && data) return data;
     }
     return getLocalData('sams_faqs', DEFAULT_FAQS)
@@ -959,92 +940,38 @@ export const dbService = {
   },
 
   async getAllFAQsAdmin(): Promise<FAQ[]> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('faqs')
-        .select('*')
-        .order('order_index');
-      if (!error && data) return data;
-    }
-    return getLocalData('sams_faqs', DEFAULT_FAQS).sort((a, b) => a.order_index - b.order_index);
+    const { data, error } = await requireDb().from('faqs').select('*').eq('is_active', true).order('order_index');
+    if (error) throw new Error(error.message);
+    return data ?? [];
   },
 
   async saveFAQ(faq: Partial<FAQ>): Promise<FAQ> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('faqs')
-        .upsert({ ...faq, updated_at: new Date().toISOString() })
-        .select()
-        .single();
-      if (!error && data) return data;
-      throw new Error(error?.message || 'Failed to save FAQ in Supabase');
-    }
-    const faqs = getLocalData('sams_faqs', DEFAULT_FAQS);
-    if (faq.id) {
-      const idx = faqs.findIndex(f => f.id === faq.id);
-      if (idx !== -1) {
-        faqs[idx] = { ...faqs[idx], ...faq, updated_at: new Date().toISOString() } as FAQ;
-        setLocalData('sams_faqs', faqs);
-        return faqs[idx];
-      }
-    }
-    const newFaq: FAQ = {
-      id: Math.random().toString(36).substr(2, 9),
-      question: faq.question || '',
-      answer: faq.answer || '',
-      order_index: faq.order_index || (faqs.length + 1),
-      is_active: faq.is_active ?? true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    faqs.push(newFaq);
-    setLocalData('sams_faqs', faqs);
-    return newFaq;
+    const db = requireDb();
+    const fields = { question: faq.question, answer: faq.answer, order_index: faq.order_index, is_active: faq.is_active, translations: faq.translations };
+    const query = faq.id
+      ? db.from('faqs').update(fields).eq('id', faq.id)
+      : db.from('faqs').insert({ ...fields, order_index: fields.order_index ?? 100 });
+    const { data, error } = await query.select().single();
+    if (error || !data) throw new Error(error?.message || 'Failed to save FAQ');
+    return data;
   },
 
   // --- SITE SETTINGS ---
   async getSiteSettings(): Promise<Record<string, string>> {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('site_settings')
-        .select('key, value');
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase.from('site_settings').select('key, value');
       if (!error && data) {
-        const settings: Record<string, string> = {};
-        data.forEach((row: any) => {
-          settings[row.key] = row.value;
-        });
-        return settings;
+        return Object.fromEntries(data.map((row: { key: string; value: string }) => [row.key, row.value]));
       }
     }
     const local = getLocalData('sams_site_settings', DEFAULT_SITE_SETTINGS);
-    const settings: Record<string, string> = {};
-    local.forEach(row => {
-      settings[row.key] = row.value;
-    });
-    return settings;
+    return Object.fromEntries(local.map(row => [row.key, row.value]));
   },
 
   async updateSiteSetting(key: string, value: string): Promise<boolean> {
-    if (isSupabaseConfigured) {
-      const { error } = await supabase
-        .from('site_settings')
-        .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-      return !error;
-    }
-    const local = getLocalData('sams_site_settings', DEFAULT_SITE_SETTINGS);
-    const idx = local.findIndex(s => s.key === key);
-    if (idx !== -1) {
-      local[idx].value = value;
-      local[idx].updated_at = new Date().toISOString();
-    } else {
-      local.push({
-        id: Math.random().toString(),
-        key,
-        value,
-        updated_at: new Date().toISOString()
-      });
-    }
-    setLocalData('sams_site_settings', local);
-    return true;
-  }
+    const { error } = await requireDb()
+      .from('site_settings')
+      .upsert({ key, value }, { onConflict: 'key' });
+    return !error;
+  },
 };

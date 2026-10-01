@@ -3,20 +3,24 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { usePathname } from 'next/navigation';
 import { Search, User, ShoppingBag, Menu, X } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
+import { useHydrated } from '@/lib/useHydrated';
+import { useInternalPath, useLocalePath, useMessages } from '@/i18n/I18nProvider';
+import { siteMessages } from '@/i18n/messages/site';
+import LanguageToggle from './LanguageToggle';
 
 export default function Header() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const pathname = usePathname();
+  const pathname = useInternalPath();
+  const href = useLocalePath();
+  const t = useMessages(siteMessages);
   const { setIsOpen: openCart, getItemCount } = useCartStore();
 
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
 
   useEffect(() => {
-    setMounted(true);
     const handleScroll = () => {
       if (window.scrollY > 50) {
         setIsScrolled(true);
@@ -56,15 +60,15 @@ export default function Header() {
       : 'text-fire border-b-2 border-fire pb-1 font-bold';
 
   return (
-    <header className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${headerBgClass}`}>
+    <header className={`fixed top-0 inset-x-0 z-50 transition-all duration-300 ${headerBgClass}`}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between relative">
           {/* Logo */}
           <div className="flex-shrink-0 flex items-center z-10">
-            <Link href="/" className="flex items-center gap-2">
+            <Link href={href('/')} className="flex items-center gap-2">
               <Image 
                 src="/logo.png" 
-                alt="SAMS LLC Logo" 
+                alt={t.logoAlt} 
                 width={64} 
                 height={64} 
                 className={`object-contain transition-all duration-300 ${
@@ -74,42 +78,50 @@ export default function Header() {
               <span className={`font-display text-2xl tracking-wider font-bold transition-all duration-300 ${
                 isScrolled || !isHeroPage ? 'inline-block text-navy' : 'hidden'
               }`}>
-                SAMS LLC
+                {t.brand}
               </span>
             </Link>
           </div>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex absolute left-1/2 -translate-x-1/2 space-x-10 text-sm uppercase tracking-wider font-bold">
+          <nav className="hidden md:flex absolute left-1/2 -translate-x-1/2 gap-10 text-sm uppercase tracking-wider font-bold">
             <Link 
-              href="/" 
+              href={href('/')} 
               className={pathname === '/' ? activeLinkClass : linkColorClass}
             >
-              Home
+              {t.nav.home}
             </Link>
             <Link 
-              href="/catalog" 
+              href={href('/catalog')} 
               className={pathname === '/catalog' || pathname.startsWith('/catalog/') ? activeLinkClass : linkColorClass}
             >
-              Catalog
+              {t.nav.catalog}
             </Link>
             <Link 
-              href="/contact" 
+              href={href('/contact')} 
               className={pathname === '/contact' ? activeLinkClass : linkColorClass}
             >
-              Contact
+              {t.nav.contact}
             </Link>
           </nav>
 
           {/* Utility Icons */}
-          <div className="flex items-center space-x-4 z-10">
-            {/* Search */}
-            <button className={`p-1.5 rounded-full ${iconColorClass}`} aria-label="Search">
+          <div className="flex items-center gap-3 sm:gap-4 z-10">
+            <LanguageToggle
+              className={
+                isScrolled || !isHeroPage
+                  ? 'border-gray-200 text-navy hover:border-fire hover:text-fire'
+                  : 'border-white/40 text-white hover:bg-white/10'
+              }
+            />
+
+            {/* Search lives on the catalog page */}
+            <Link href={href('/catalog')} className={`hidden sm:inline-flex p-1.5 rounded-full ${iconColorClass}`} aria-label={t.nav.catalog}>
               <Search className="w-5 h-5" />
-            </button>
+            </Link>
 
             {/* Profile / Admin Login */}
-            <Link href="/admin" className={`p-1.5 rounded-full ${iconColorClass}`} aria-label="Admin Dashboard">
+            <Link href="/admin" className={`hidden sm:inline-flex p-1.5 rounded-full ${iconColorClass}`} aria-label={t.nav.staffLogin}>
               <User className="w-5 h-5" />
             </Link>
 
@@ -117,11 +129,11 @@ export default function Header() {
             <button 
               onClick={() => openCart(true)} 
               className={`p-1.5 rounded-full relative ${iconColorClass}`} 
-              aria-label="Open Cart"
+              aria-label={t.nav.openCart}
             >
               <ShoppingBag className="w-5 h-5" />
               {mounted && getItemCount() > 0 && (
-                <span className="absolute -top-1 -right-1 bg-fire text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center animate-pulse">
+                <span className="absolute -top-1 -end-1 bg-fire text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center animate-pulse">
                   {getItemCount()}
                 </span>
               )}
@@ -131,7 +143,8 @@ export default function Header() {
             <button 
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
               className={`p-1.5 rounded-full md:hidden ${iconColorClass}`}
-              aria-label="Toggle Menu"
+              aria-label={t.nav.toggleMenu}
+              aria-expanded={isMobileMenuOpen}
             >
               {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
@@ -144,31 +157,31 @@ export default function Header() {
         <div className="md:hidden bg-white text-gray-950 border-t border-gray-100 shadow-xl py-4 transition-all duration-300">
           <div className="px-4 pt-2 pb-4 space-y-3">
             <Link 
-              href="/" 
+              href={href('/')} 
               onClick={() => setIsMobileMenuOpen(false)}
               className={`block px-4 py-2.5 rounded-lg text-sm font-semibold tracking-wider uppercase ${
                 pathname === '/' ? 'bg-gray-100 text-fire' : 'text-gray-700 hover:bg-gray-50'
               }`}
             >
-              Home
+              {t.nav.home}
             </Link>
             <Link 
-              href="/catalog" 
+              href={href('/catalog')} 
               onClick={() => setIsMobileMenuOpen(false)}
               className={`block px-4 py-2.5 rounded-lg text-sm font-semibold tracking-wider uppercase ${
                 pathname.startsWith('/catalog') ? 'bg-gray-100 text-fire' : 'text-gray-700 hover:bg-gray-50'
               }`}
             >
-              Catalog
+              {t.nav.catalog}
             </Link>
             <Link 
-              href="/contact" 
+              href={href('/contact')} 
               onClick={() => setIsMobileMenuOpen(false)}
               className={`block px-4 py-2.5 rounded-lg text-sm font-semibold tracking-wider uppercase ${
                 pathname === '/contact' ? 'bg-gray-100 text-fire' : 'text-gray-700 hover:bg-gray-50'
               }`}
             >
-              Contact
+              {t.nav.contact}
             </Link>
             <Link 
               href="/admin" 
@@ -177,7 +190,7 @@ export default function Header() {
                 pathname === '/admin' ? 'bg-gray-100 text-fire' : 'text-gray-700 hover:bg-gray-50'
               }`}
             >
-              Admin Dashboard
+              {t.nav.staffLogin}
             </Link>
           </div>
         </div>

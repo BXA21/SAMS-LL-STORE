@@ -9,8 +9,11 @@ import {
   Calendar,
   Sparkles
 } from 'lucide-react';
+import type { Locale } from '@/i18n/config';
+import { homeMessages } from '@/i18n/messages/home';
 
-export default function Benefits() {
+export default function Benefits({ locale }: { locale: Locale }) {
+  const t = homeMessages[locale].benefits;
   return (
     <section className="py-24 bg-light-grey border-b border-gray-100">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -20,15 +23,15 @@ export default function Benefits() {
           <div className="flex items-center justify-center gap-2">
             <span className="h-0.5 w-6 bg-fire" />
             <span className="text-xs uppercase tracking-widest font-bold text-navy">
-              Product Effectiveness
+              {t.eyebrow}
             </span>
             <span className="h-0.5 w-6 bg-fire" />
           </div>
           <h2 className="font-display text-4xl sm:text-5xl font-bold uppercase tracking-tight text-navy">
-            How Our Products Make a Difference
+            {t.title}
           </h2>
           <p className="text-sm text-gray-500 font-light leading-relaxed max-w-2xl mx-auto">
-            SAMS automatic fire extinguishing solutions offer advanced, self-activating safety parameters. We secure life and property with technology that requires no maintenance or human presence.
+            {t.intro}
           </p>
         </div>
 
@@ -42,15 +45,15 @@ export default function Benefits() {
                 <Zap className="w-6 h-6" />
               </div>
               <span className="text-[10px] uppercase font-bold tracking-widest text-white bg-safety px-2.5 py-1 rounded-full shadow-sm font-sans">
-                Core Feature
+                {t.selfActivating.badge}
               </span>
             </div>
             <div className="space-y-3 mt-8">
               <h3 className="font-display text-2xl font-bold uppercase tracking-wide">
-                Self-Activating Suppression
+                {t.selfActivating.title}
               </h3>
               <p className="text-sm text-white/95 font-light leading-relaxed max-w-xl">
-                Unlike traditional fire extinguishers that require manual operation, SAMS fire safety balls trigger automatically upon direct flame exposure. They act as your silent 24/7 guard, defending your property when you are asleep or away.
+                {t.selfActivating.body}
               </p>
             </div>
           </div>
@@ -62,13 +65,13 @@ export default function Benefits() {
             </div>
             <div className="space-y-2 mt-6">
               <div className="text-5xl font-black font-display text-fire leading-none">
-                3-5s
+                {t.rapid.stat}
               </div>
               <h3 className="font-display text-lg font-bold uppercase tracking-wide text-navy">
-                Rapid Activation
+                {t.rapid.title}
               </h3>
               <p className="text-xs text-gray-500 font-light leading-relaxed">
-                Suppresses fire in roughly 3 to 5 seconds on direct flame contact, choking flames at the source before they expand.
+                {t.rapid.body}
               </p>
             </div>
           </div>
@@ -80,10 +83,10 @@ export default function Benefits() {
             </div>
             <div className="space-y-2 mt-6">
               <h3 className="font-display text-lg font-bold uppercase tracking-wide text-navy">
-                Non-Toxic Agent
+                {t.nonToxic.title}
               </h3>
               <p className="text-xs text-gray-500 font-light leading-relaxed">
-                Uses eco-friendly, biodegradable dry chemical powders. Completely harmless to humans, pets, and delicate computer server hardware.
+                {t.nonToxic.body}
               </p>
             </div>
           </div>
@@ -95,15 +98,15 @@ export default function Benefits() {
                 <Calendar className="w-6 h-6 text-white" />
               </div>
               <span className="text-[10px] uppercase font-bold tracking-widest text-white bg-white/10 px-2.5 py-1 rounded-full font-sans">
-                Zero Cost
+                {t.lifespan.badge}
               </span>
             </div>
             <div className="space-y-3 mt-8">
               <h3 className="font-display text-2xl font-bold uppercase tracking-wide">
-                5-Year Maintenance-Free Lifespan
+                {t.lifespan.title}
               </h3>
               <p className="text-sm text-red-100 font-light leading-relaxed max-w-xl">
-                Guarantees 5 years of active readiness with zero maintenance. No pressure tests, no refilling, and no recurring inspection fees. A single placement secures your property for half a decade.
+                {t.lifespan.body}
               </p>
             </div>
           </div>
@@ -115,15 +118,15 @@ export default function Benefits() {
                 <HelpCircle className="w-6 h-6" />
               </div>
               <span className="text-[10px] uppercase font-bold tracking-widest text-navy bg-light-grey px-2.5 py-1 rounded-full font-sans">
-                Universal Usability
+                {t.noTraining.badge}
               </span>
             </div>
             <div className="space-y-3 mt-8">
               <h3 className="font-display text-2xl font-bold uppercase tracking-wide text-navy">
-                No Safety Training Required
+                {t.noTraining.title}
               </h3>
               <p className="text-sm text-gray-500 font-light leading-relaxed max-w-xl">
-                Extremely simple to use—just roll or toss the fire safety ball into active flames. Since it is self-activating, even children, elderly residents, or visitors can defend themselves without operating heavy handles or pins.
+                {t.noTraining.body}
               </p>
             </div>
           </div>
@@ -135,10 +138,10 @@ export default function Benefits() {
             </div>
             <div className="space-y-2 mt-6">
               <h3 className="font-display text-lg font-bold uppercase tracking-wide">
-                Compact & Portable
+                {t.portable.title}
               </h3>
               <p className="text-xs text-gray-300 font-light leading-relaxed">
-                Weighing between 400g to 1.3kg, these automatic balls can be easily thrown by hand or mounted anywhere near fire hazard zones.
+                {t.portable.body}
               </p>
             </div>
           </div>

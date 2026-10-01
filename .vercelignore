@@ -1,0 +1,10 @@
+# Never upload local secrets or build output to Vercel; configuration comes
+# from the project's environment variables.
+.env
+.env.*
+!.env.example
+.next
+node_modules
+.netlify
+.vercel
+*.tsbuildinfo
